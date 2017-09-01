@@ -95,6 +95,7 @@ documents those changes that are of interest to users and administrators.
  -- Add 'scontrol write batch_script <jobid>' command to retrieve the batch
     script for a given job.
  -- Remove option to display the batch script as part of 'scontrol show job'.
+ -- Add acct_gather_profile/influxdb plugin.
 
 * Changes in Slurm 17.11.0pre2
 ==============================
