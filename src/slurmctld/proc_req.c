@@ -665,6 +665,7 @@ static void _fill_ctld_conf(slurm_ctl_conf_t * conf_ptr)
 	slurm_ctl_conf_t *conf = &slurmctld_conf;
 	char *licenses_used;
 	uint32_t next_job_id;
+	int i;
 
 	/* Do before config lock */
 	licenses_used = get_licenses_used();
@@ -705,8 +706,6 @@ static void _fill_ctld_conf(slurm_ctl_conf_t * conf_ptr)
 	conf_ptr->authinfo            = xstrdup(conf->authinfo);
 	conf_ptr->authtype            = xstrdup(conf->authtype);
 
-	conf_ptr->backup_addr         = xstrdup(conf->backup_addr);
-	conf_ptr->backup_controller   = xstrdup(conf->backup_controller);
 	conf_ptr->batch_start_timeout = conf->batch_start_timeout;
 	conf_ptr->boot_time           = slurmctld_config.boot_time;
 	conf_ptr->bb_type             = xstrdup(conf->bb_type);
@@ -715,8 +714,14 @@ static void _fill_ctld_conf(slurm_ctl_conf_t * conf_ptr)
 	conf_ptr->chos_loc            = xstrdup(conf->chos_loc);
 	conf_ptr->cluster_name        = xstrdup(conf->cluster_name);
 	conf_ptr->complete_wait       = conf->complete_wait;
-	conf_ptr->control_addr        = xstrdup(conf->control_addr);
-	conf_ptr->control_machine     = xstrdup(conf->control_machine);
+	conf_ptr->control_cnt         = conf->control_cnt;
+	conf_ptr->control_addr    = xmalloc(sizeof(char *) * conf->control_cnt);
+	conf_ptr->control_machine = xmalloc(sizeof(char *) * conf->control_cnt);
+	for (i = 0; i < conf_ptr->control_cnt; i++) {
+		conf_ptr->control_addr[i] = xstrdup(conf->control_addr[i]);
+		conf_ptr->control_machine[i] =
+			xstrdup(conf->control_machine[i]);
+	}
 	conf_ptr->core_spec_plugin    = xstrdup(conf->core_spec_plugin);
 	conf_ptr->cpu_freq_def        = conf->cpu_freq_def;
 	conf_ptr->cpu_freq_govs       = conf->cpu_freq_govs;

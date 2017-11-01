@@ -190,10 +190,10 @@ void run_backup(slurm_trigger_callbacks_t *callbacks)
 	}
 
 	lock_slurmctld(config_read_lock);
-	error("ControlMachine %s not responding, "
-		"BackupController %s taking over",
-		slurmctld_conf.control_machine,
-		slurmctld_conf.backup_controller);
+//FIXME: Modify for multiple backups
+	error("ControlMachine %s not responding, BackupController %s taking over",
+	      slurmctld_conf.control_machine[0],
+	      slurmctld_conf.control_machine[1]);
 	unlock_slurmctld(config_read_lock);
 
 	backup_slurmctld_restart();
@@ -320,9 +320,10 @@ static void *_background_rpc_mgr(void *no_data)
 	lock_slurmctld(config_read_lock);
 
 	/* set node_addr to bind to (NULL means any) */
-	if ((xstrcmp(slurmctld_conf.backup_controller,
-		     slurmctld_conf.backup_addr) != 0)) {
-		node_addr = slurmctld_conf.backup_addr ;
+//FIXME: Modify for multiple backups
+	if ((xstrcmp(slurmctld_conf.control_machine[1],
+		     slurmctld_conf.control_addr[1]) != 0)) {
+		node_addr = slurmctld_conf.control_addr[1];
 	}
 
 	if ((sockfd =
@@ -434,9 +435,9 @@ static int _ping_controller(void)
 	 */
 	slurm_msg_t_init(&req);
 	lock_slurmctld(config_read_lock);
-	debug3("pinging slurmctld at %s", slurmctld_conf.control_addr);
+	debug3("pinging slurmctld at %s", slurmctld_conf.control_addr[0]);
 	slurm_set_addr(&req.address, slurmctld_conf.slurmctld_port,
-	               slurmctld_conf.control_addr);
+	               slurmctld_conf.control_addr[0]);
 	unlock_slurmctld(config_read_lock);
 
 	req.msg_type = REQUEST_PING;
@@ -483,15 +484,15 @@ static int _shutdown_primary_controller(int wait_time)
 	slurm_msg_t req;
 
 	slurm_msg_t_init(&req);
-	if ((slurmctld_conf.control_addr == NULL) ||
-	    (slurmctld_conf.control_addr[0] == '\0')) {
+	if ((slurmctld_conf.control_addr[0] == NULL) ||
+	    (slurmctld_conf.control_addr[0][0] == '\0')) {
 		error("_shutdown_primary_controller: "
 		      "no primary controller to shutdown");
 		return SLURM_ERROR;
 	}
 
 	slurm_set_addr(&req.address, slurmctld_conf.slurmctld_port,
-		       slurmctld_conf.control_addr);
+		       slurmctld_conf.control_addr[0]);
 
 	/* send request message */
 	req.msg_type = REQUEST_CONTROL;

@@ -497,9 +497,11 @@ _print_config (char *config_param)
 		slurm_print_ctl_conf (stdout, slurm_ctl_conf_ptr) ;
 		fprintf(stdout, "\n");
 	}
-	if (slurm_ctl_conf_ptr)
-		_ping_slurmctld (slurm_ctl_conf_ptr->control_machine,
-				 slurm_ctl_conf_ptr->backup_controller);
+	if (slurm_ctl_conf_ptr) {
+//FIXME: Modify for more backups
+		_ping_slurmctld(slurm_ctl_conf_ptr->control_machine[0],
+				slurm_ctl_conf_ptr->control_machine[1]);
+	}
 }
 
 /* Print slurmd status on localhost.
@@ -528,10 +530,11 @@ _print_ping (void)
 	slurm_conf_init(NULL);
 
 	conf = slurm_conf_lock();
-	primary = xstrdup(conf->control_machine);
-	secondary = xstrdup(conf->backup_controller);
+	primary = xstrdup(conf->control_machine[0]);
+	secondary = xstrdup(conf->control_machine[1]);
 	slurm_conf_unlock();
 
+//FIXME: Modify for more backups
 	_ping_slurmctld (primary, secondary);
 
 	xfree(primary);
@@ -585,8 +588,8 @@ _print_daemons (void)
 	slurm_ctl_conf_info_msg_t *conf;
 	char node_name_short[MAX_SLURM_NAME];
 	char node_name_long[MAX_SLURM_NAME];
-	char *b, *c, *n, *token, *save_ptr = NULL;
-	int actld = 0, ctld = 0, d = 0;
+	char *c, *n, *token, *save_ptr = NULL;
+	int actld = 0, ctld = 0, d = 0, i;
 	char daemon_list[] = "slurmctld slurmd";
 
 	slurm_conf_init(NULL);
@@ -594,26 +597,24 @@ _print_daemons (void)
 
 	gethostname_short(node_name_short, MAX_SLURM_NAME);
 	gethostname(node_name_long, MAX_SLURM_NAME);
-	if ((b = conf->backup_controller)) {
-		if ((xstrcmp(b, node_name_short) == 0) ||
-		    (xstrcmp(b, node_name_long)  == 0) ||
-		    (xstrcasecmp(b, "localhost") == 0))
-			ctld = 1;
-	}
-	if (conf->control_machine) {
+	for (i = 0; i < conf->control_cnt; i++) {
+		if (!conf->control_machine[i])
+			break;
 		actld = 1;
-		c = xstrdup(conf->control_machine);
+		c = xstrdup(conf->control_machine[i]);
 		token = strtok_r(c, ",", &save_ptr);
 		while (token) {
-			if ((xstrcmp(token, node_name_short) == 0) ||
-			    (xstrcmp(token, node_name_long)  == 0) ||
-			    (xstrcasecmp(token, "localhost") == 0)) {
+			if (!xstrcmp(token, node_name_short) ||
+			    !xstrcmp(token, node_name_long)  ||
+			    !xstrcasecmp(token, "localhost")) {
 				ctld = 1;
 				break;
 			}
 			token = strtok_r(NULL, ",", &save_ptr);
 		}
 		xfree(c);
+		if (ctld)
+			break;
 	}
 	slurm_conf_unlock();
 
@@ -1323,10 +1324,10 @@ static int _process_command (int argc, char **argv)
 		slurm_ctl_conf_info_msg_t  *slurm_ctl_conf_ptr = NULL;
 
 		slurm_ctl_conf_ptr = slurm_conf_lock();
-		secondary = xstrdup(slurm_ctl_conf_ptr->backup_controller);
+		secondary = xstrdup(slurm_ctl_conf_ptr->control_machine[1]);
 		slurm_conf_unlock();
-
-		if ( secondary && secondary[0] != '\0' ) {
+//FIXME: Modify for more backups
+		if (secondary && secondary[0]) {
 			error_code = slurm_takeover();
 			if (error_code) {
 				exit_code = 1;

@@ -214,6 +214,7 @@ static int controller_sigarray[] = {
 static int          _accounting_cluster_ready();
 static int          _accounting_mark_all_nodes_down(char *reason);
 static void *       _assoc_cache_mgr(void *no_data);
+static int          _backup_index(void);
 static void         _become_slurm_user(void);
 static void         _default_sigaction(int sig);
 static void         _get_fed_updates();
@@ -257,7 +258,8 @@ int main(int argc, char **argv)
 	slurmctld_lock_t config_write_lock = {
 		WRITE_LOCK, WRITE_LOCK, WRITE_LOCK, WRITE_LOCK, NO_LOCK };
 	slurm_trigger_callbacks_t callbacks;
-	bool create_clustername_file;
+	bool create_clustername_file, is_backup = false;
+
 	/*
 	 * Make sure we have no extra open files which
 	 * would be propagated to spawned tasks.
@@ -416,9 +418,18 @@ int main(int argc, char **argv)
 		slurmctld_config.send_groups_in_cred = false;
 
 	/* Must set before plugins are loaded. */
-	if (slurmctld_conf.backup_controller &&
-	    ((xstrcmp(node_name_short,slurmctld_conf.backup_controller) == 0) ||
-	     (xstrcmp(node_name_long, slurmctld_conf.backup_controller) == 0))) {
+	for (i = 1; i < slurmctld_conf.control_cnt; i++) {
+		if (!slurmctld_conf.control_machine[i])
+			break;
+		if (!xstrcmp(node_name_short,
+			     slurmctld_conf.control_machine[i]) ||
+		    !xstrcmp(node_name_long,
+			     slurmctld_conf.control_machine[i])) {
+			is_backup = true;
+			break;
+		}
+	}
+	if (is_backup) {
 		slurmctld_primary = 0;
 
 #ifdef HAVE_ALPS_CRAY
@@ -505,10 +516,8 @@ int main(int argc, char **argv)
 				_accounting_mark_all_nodes_down("cold-start");
 			}
 		} else {
-			error("this host (%s/%s) not a valid controller "
-			      "(%s or %s)", node_name_short, node_name_long,
-			      slurmctld_conf.control_machine,
-			      slurmctld_conf.backup_controller);
+			error("this host (%s/%s) not a valid controller",
+			      node_name_short, node_name_long);
 			exit(0);
 		}
 
@@ -957,17 +966,14 @@ static void *_slurmctld_rpc_mgr(void *no_data)
 	debug3("_slurmctld_rpc_mgr pid = %u", getpid());
 
 	/* set node_addr to bind to (NULL means any) */
-	if (slurmctld_conf.backup_controller && slurmctld_conf.backup_addr &&
-	    ((xstrcmp(node_name_short,slurmctld_conf.backup_controller) == 0) ||
-	     (xstrcmp(node_name_long, slurmctld_conf.backup_controller) == 0))&&
-	    (xstrcmp(slurmctld_conf.backup_controller,
-		     slurmctld_conf.backup_addr) != 0)) {
-		node_addr = slurmctld_conf.backup_addr ;
-	}
-	else if (_valid_controller() &&
-		 xstrcmp(slurmctld_conf.control_machine,
-			 slurmctld_conf.control_addr)) {
-		node_addr = slurmctld_conf.control_addr ;
+	if (((i = _backup_index() != -1)) &&
+	    xstrcmp(slurmctld_conf.control_machine[i],
+		    slurmctld_conf.control_addr[i])) {
+		node_addr = slurmctld_conf.control_addr[i];
+	} else if (_valid_controller() &&
+		 xstrcmp(slurmctld_conf.control_machine[0],
+			 slurmctld_conf.control_addr[0])) {
+		node_addr = slurmctld_conf.control_addr[0];
 	}
 
 	/* initialize ports for RPCs */
@@ -2001,15 +2007,16 @@ static void *_slurmctld_background(void *no_data)
 		 * A network or security problem could result in
 		 * the backup controller assuming control even
 		 * while the real primary controller is running */
+//FIXME: Work required here?
 		lock_slurmctld(config_read_lock);
 		if (slurmctld_conf.slurmctld_timeout   &&
-		    slurmctld_conf.backup_addr         &&
-		    slurmctld_conf.backup_addr[0]      &&
+		    slurmctld_conf.control_addr[1]     &&
+		    slurmctld_conf.control_addr[1][0]  &&
 		    (difftime(now, last_assert_primary_time) >=
 		     slurmctld_conf.slurmctld_timeout) &&
-		    slurmctld_conf.backup_controller &&
-		    xstrcmp(node_name_short,slurmctld_conf.backup_controller) &&
-		    xstrcmp(node_name_long, slurmctld_conf.backup_controller)) {
+		    slurmctld_conf.control_machine[1] &&
+		    xstrcmp(node_name_short,slurmctld_conf.control_machine[1])&&
+		    xstrcmp(node_name_long, slurmctld_conf.control_machine[1])){
 			now = time(NULL);
 			last_assert_primary_time = now;
 			(void) _shutdown_backup_controller(0);
@@ -2522,52 +2529,55 @@ static void _usage(char *prog_name)
  */
 static int _shutdown_backup_controller(int wait_time)
 {
-	int rc;
+	int i, rc = SLURM_SUCCESS, rc2;
 	slurm_msg_t req;
+	bool acct_reg = false;
 
-	slurm_msg_t_init(&req);
-	if ((slurmctld_conf.backup_addr == NULL) ||
-	    (slurmctld_conf.backup_addr[0] == '\0')) {
-		debug("No backup controller to shutdown");
-		return SLURM_SUCCESS;
-	}
+	for (i = 1; i < slurmctld_conf.control_cnt; i++) {
+		if ((slurmctld_conf.control_addr[i] == NULL) ||
+		    (slurmctld_conf.control_addr[i][0] == '\0'))
+			continue;
 
-	slurm_set_addr(&req.address, slurmctld_conf.slurmctld_port,
-		       slurmctld_conf.backup_addr);
+		/* send request message */
+		slurm_msg_t_init(&req);
+		slurm_set_addr(&req.address, slurmctld_conf.slurmctld_port,
+			       slurmctld_conf.control_addr[i]);
+		req.msg_type = REQUEST_CONTROL;
 
-	/* send request message */
-	req.msg_type = REQUEST_CONTROL;
-
-	if (slurm_send_recv_rc_msg_only_one(&req, &rc,
-				(CONTROL_TIMEOUT * 1000)) < 0) {
-		error("_shutdown_backup_controller:send/recv: %m");
-		return SLURM_ERROR;
-	}
-	if (rc == ESLURM_DISABLED)
-		debug("backup controller responding");
-	else if (rc == 0) {
-		debug("backup controller has relinquished control");
-		if (wait_time == 0) {
-			/* In case primary controller really did not terminate,
-			 * but just temporarily became non-responsive */
-			clusteracct_storage_g_register_ctld(
-				acct_db_conn,
-				slurmctld_conf.slurmctld_port);
+		if (slurm_send_recv_rc_msg_only_one(&req, &rc2,
+					(CONTROL_TIMEOUT * 1000)) < 0) {
+			error("%s:send/recv: %m", __func__);
+			rc = SLURM_ERROR;
 		}
-	} else {
-		error("_shutdown_backup_controller: %s", slurm_strerror(rc));
-		return SLURM_ERROR;
+		if (rc2 == ESLURM_DISABLED) {
+			debug("backup controller responding");
+		} else if (rc2 == 0) {
+			debug("backup controller has relinquished control");
+			acct_reg = true;
+		} else {
+			error("%s (%s): %s", __func__,
+			      slurmctld_conf.control_machine[i],
+			      slurm_strerror(rc2));
+			rc = SLURM_ERROR;
+		}
 	}
 
-	/* FIXME: Ideally the REQUEST_CONTROL RPC does not return until all
-	 * other activity has ceased and the state has been saved. That is
-	 * not presently the case (it returns when no other work is pending,
-	 * so the state save should occur right away). We sleep for a while
-	 * here and give the backup controller time to shutdown */
-	if (wait_time)
+	if (wait_time) {
+		/* FIXME: Ideally the REQUEST_CONTROL RPC does not return until
+		 * all other activity has ceased and the state has been saved.
+		 * That is not presently the case (it returns when no other work
+		 * is pending, so the state save should occur right away). We
+		 * sleep for a while here and give the backup controller time
+		 * to shutdown */
 		sleep(wait_time);
+	} else if (acct_reg) {
+		/* In case primary controller really did not terminate,
+		 * but just temporarily became non-responsive */
+		clusteracct_storage_g_register_ctld(acct_db_conn,
+					slurmctld_conf.slurmctld_port);
+	}
 
-	return SLURM_SUCCESS;
+	return rc;
 }
 
 /* Reset the job credential key based upon configuration parameters
@@ -2987,20 +2997,39 @@ static void _become_slurm_user(void)
 	}
 }
 
+/* If this computer is a backup slurmctld, return it's index in the controller
+ * table (1 to MAX_CONTROLLERS). Otherwise return -1; */
+static int _backup_index(void)
+{
+	int i;
+
+	for (i = 1; i < slurmctld_conf.control_cnt; i++) {
+		if (slurmctld_conf.control_machine[i] &&
+		    slurmctld_conf.control_addr[i]    &&
+		    (!xstrcmp(node_name_short,
+			      slurmctld_conf.control_machine[i])  ||
+		     !xstrcmp(node_name_long,
+			      slurmctld_conf.control_machine[i]))) {
+			return i;
+		}
+	}
+	return -1;
+}
+
 /* Return true if node_name (a global) is a valid controller host name */
 static bool  _valid_controller(void)
 {
 	bool match = false;
 
-	if (slurmctld_conf.control_machine == NULL)
+	if (slurmctld_conf.control_machine[0] == NULL)
 		return match;
 
-	if ((xstrcmp(node_name_short,slurmctld_conf.control_machine) == 0) ||
-	    (xstrcmp(node_name_long, slurmctld_conf.control_machine) == 0))
+	if (!xstrcmp(node_name_short,slurmctld_conf.control_machine[0]) ||
+	    !xstrcmp(node_name_long, slurmctld_conf.control_machine[0])) {
 		match = true;
-	else if (strchr(slurmctld_conf.control_machine, ',')) {
+	} else if (strchr(slurmctld_conf.control_machine[0], ',')) {
 		char *token, *last = NULL;
-		char *tmp_name = xstrdup(slurmctld_conf.control_machine);
+		char *tmp_name = xstrdup(slurmctld_conf.control_machine[0]);
 
 		token = strtok_r(tmp_name, ",", &last);
 		while (token) {
@@ -3039,37 +3068,50 @@ static void _test_thread_limit(void)
  * RET SLURM_SUCCESS or error code */
 static int _ping_backup_controller(void)
 {
-	int rc = SLURM_SUCCESS;
+	int i, rc = SLURM_SUCCESS, rc2 = SLURM_SUCCESS;
 	slurm_msg_t req;
+	uint32_t control_cnt;
+	char **control_addr, **control_machine;
 	/* Locks: Read configuration */
 	slurmctld_lock_t config_read_lock = {
 		READ_LOCK, NO_LOCK, NO_LOCK, NO_LOCK, NO_LOCK };
 
 	lock_slurmctld(config_read_lock);
-	if (!slurmctld_conf.backup_addr) {
-		debug4("No backup slurmctld to ping");
-		unlock_slurmctld(config_read_lock);
-		return SLURM_SUCCESS;
+	control_cnt = slurmctld_conf.control_cnt;
+	control_addr    = xmalloc(sizeof(char *) * control_cnt);
+	control_machine = xmalloc(sizeof(char *) * control_cnt);
+	for (i = 0; i < slurmctld_conf.control_cnt; i++) {
+		control_addr[i]    = xstrdup(slurmctld_conf.control_addr[i]);
+		control_machine[i] = xstrdup(slurmctld_conf.control_machine[i]);
 	}
-
-	/*
-	 *  Set address of controller to ping
-	 */
-	debug3("pinging backup slurmctld at %s", slurmctld_conf.backup_addr);
-	slurm_msg_t_init(&req);
-	slurm_set_addr(&req.address, slurmctld_conf.slurmctld_port,
-		       slurmctld_conf.backup_addr);
 	unlock_slurmctld(config_read_lock);
 
-	req.msg_type = REQUEST_PING;
+	for (i = 0; i < control_cnt; i++) {
+		if (!control_addr[i])
+			continue;
 
-	if (slurm_send_recv_rc_msg_only_one(&req, &rc, 0) < 0) {
-		debug2("_ping_backup_controller/slurm_send_node_msg error: %m");
-		return SLURM_ERROR;
+		slurm_msg_t_init(&req);
+		slurm_set_addr(&req.address, slurmctld_conf.slurmctld_port,
+			       control_addr[i]);
+		req.msg_type = REQUEST_PING;
+
+		if (slurm_send_recv_rc_msg_only_one(&req, &rc2, 0) < 0) {
+			debug2("%s slurm_send_node_msg to %s error: %m",
+			       __func__, control_machine[i]);
+			rc = SLURM_ERROR;
+		} else if (rc2) {
+			debug2("%s to %s, response error %d",
+			       __func__, control_machine[i], rc2);
+			rc = rc2;
+		}
 	}
 
-	if (rc)
-		debug2("_ping_backup_controller/response error %d", rc);
+	for (i = 0; i < control_cnt; i++) {
+		xfree(control_addr[i]);
+		xfree(control_machine[i]);
+	}
+	xfree(control_addr);
+	xfree(control_machine);
 
 	return rc;
 }

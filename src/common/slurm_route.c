@@ -146,10 +146,10 @@ static void _set_collectors(char *this_node_name)
 
 	conf = slurm_conf_lock();
 	nodes = _get_all_nodes();
-	parent = strdup(conf->control_addr);
-	if (conf->backup_addr) {
-		backup = strdup(conf->backup_addr);
-	}
+//FIXME: Modify for multiple backups
+	parent = strdup(conf->control_addr[0]);
+	if (conf->control_addr[1])
+		backup = strdup(conf->control_addr[1]);
 	parent_port = conf->slurmctld_port;
 	backup_port = parent_port;
 	slurm_conf_unlock();

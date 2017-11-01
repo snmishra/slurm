@@ -17110,7 +17110,7 @@ set_remote_working_response(resource_allocation_response_msg_t *resp,
 				response_cluster_rec->name =
 					xstrdup(slurmctld_conf.cluster_name);
 				response_cluster_rec->control_host =
-					slurmctld_conf.control_addr;
+					slurmctld_conf.control_addr[0];
 				response_cluster_rec->control_port =
 					slurmctld_conf.slurmctld_port;
 				response_cluster_rec->rpc_version =

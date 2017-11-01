@@ -2157,7 +2157,8 @@ static int  _preserve_plugins(slurm_ctl_conf_t * ctl_conf_ptr,
 		xfree(old_switch_type);
 	}
 
-	if (ctl_conf_ptr->backup_controller == NULL)
+	if ((ctl_conf_ptr->control_cnt < 2) ||
+	    (ctl_conf_ptr->control_machine[1] == NULL))
 		info("%s: backup_controller not specified", __func__);
 
 	return rc;

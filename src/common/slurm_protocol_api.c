@@ -145,7 +145,7 @@ int slurm_api_set_default_config(void)
 	/*slurm_conf_init(NULL);*/
 	conf = slurm_conf_lock();
 
-	if (conf->control_addr == NULL) {
+	if (conf->control_addr[0] == NULL) {
 		error("Unable to establish controller machine");
 		rc = SLURM_ERROR;
 		goto cleanup;
@@ -158,17 +158,18 @@ int slurm_api_set_default_config(void)
 
 	slurm_set_addr(&proto_conf_default.primary_controller,
 		       conf->slurmctld_port,
-		       conf->control_addr);
+		       conf->control_addr[0]);
 	if (proto_conf_default.primary_controller.sin_port == 0) {
 		error("Unable to establish control machine address");
 		rc = SLURM_ERROR;
 		goto cleanup;
 	}
 
-	if (conf->backup_addr) {
+//FIXME: secondary_controller
+	if (conf->control_addr[1]) {
 		slurm_set_addr(&proto_conf_default.secondary_controller,
 			       conf->slurmctld_port,
-			       conf->backup_addr);
+			       conf->control_addr[1]);
 	}
 	proto_conf = &proto_conf_default;
 
@@ -3051,12 +3052,12 @@ extern int slurm_open_controller_conn(slurm_addr_t *addr, bool *use_backup,
 
 				if (retry == 0) {
 					conf = slurm_conf_lock();
-					if (conf->backup_controller)
+					if (conf->control_machine[1])
 						have_backup = 1;
 					slurm_conf_unlock();
 				}
 			}
-
+//FIXME: Modify this logic for >1 backup
 			if (have_backup || *use_backup) {
 				fd = slurm_open_msg_conn(&myproto->
 							 secondary_controller);
@@ -3111,7 +3112,8 @@ extern int slurm_open_controller_conn_spec(enum controller_id dest,
 		slurm_ctl_conf_t *conf;
 		addr = NULL;
 		conf = slurm_conf_lock();
-		if (conf->backup_addr)
+//FIXME: Modify this logic for >1 backup
+		if (conf->control_addr[1])
 			addr = &proto_conf->secondary_controller;
 		slurm_conf_unlock();
 		if (!addr)
@@ -4369,10 +4371,10 @@ tryagain:
 	}
 
 	conf = slurm_conf_lock();
-	have_backup = conf->backup_controller ? true : false;
+	have_backup = conf->control_machine[1] ? true : false;
 	slurmctld_timeout = conf->slurmctld_timeout;
 	slurm_conf_unlock();
-
+//FIXME: Modify this logic for >1 backup
 	while (retry) {
 		/* If the backup controller is in the process of assuming
 		 * control, we sleep and retry later */

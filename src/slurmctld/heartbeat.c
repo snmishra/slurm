@@ -136,7 +136,7 @@ delay:
 
 void heartbeat_start(void)
 {
-	if (!slurmctld_conf.backup_addr) {
+	if (!slurmctld_conf.control_addr[1]) {
 		debug("No BackupController, not launching heartbeat.");
 		return;
 	}
