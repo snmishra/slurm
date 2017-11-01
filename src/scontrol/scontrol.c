@@ -82,8 +82,7 @@ static void	_create_it(int argc, char **argv);
 static void	_delete_it(int argc, char **argv);
 static void     _show_it(int argc, char **argv);
 static int	_get_command(int *argc, char **argv);
-static void     _ping_slurmctld(char *control_machine,
-				char *backup_controller);
+static void     _ping_slurmctld(uint32_t control_cnt, char **control_machine);
 static void	_print_config(char *config_param);
 static void     _print_daemons(void);
 static void     _print_aliases(char* node_hostname);
@@ -498,9 +497,8 @@ _print_config (char *config_param)
 		fprintf(stdout, "\n");
 	}
 	if (slurm_ctl_conf_ptr) {
-//FIXME: Modify for more backups
-		_ping_slurmctld(slurm_ctl_conf_ptr->control_machine[0],
-				slurm_ctl_conf_ptr->control_machine[1]);
+		_ping_slurmctld(slurm_ctl_conf_ptr->control_cnt,
+				slurm_ctl_conf_ptr->control_machine);
 	}
 }
 
@@ -525,52 +523,49 @@ static void
 _print_ping (void)
 {
 	slurm_ctl_conf_info_msg_t *conf;
-	char *primary, *secondary;
+	uint32_t control_cnt, i;
+	char **control_machine;
 
 	slurm_conf_init(NULL);
 
 	conf = slurm_conf_lock();
-	primary = xstrdup(conf->control_machine[0]);
-	secondary = xstrdup(conf->control_machine[1]);
+	control_cnt = conf->control_cnt;
+	control_machine = xmalloc(sizeof(char *) * control_cnt);
+	for (i = 0; i < control_cnt; i++)
+		control_machine[i] = xstrdup(conf->control_machine[i]);
 	slurm_conf_unlock();
 
-//FIXME: Modify for more backups
-	_ping_slurmctld (primary, secondary);
+	_ping_slurmctld(control_cnt, control_machine);
 
-	xfree(primary);
-	xfree(secondary);
+	for (i = 0; i < control_cnt; i++)
+		xfree(control_machine[i]);
+	xfree(control_machine);
 }
 
 /* Report if slurmctld daemons are responding */
 static void
-_ping_slurmctld(char *control_machine, char *backup_controller)
+_ping_slurmctld(uint32_t control_cnt, char **control_machine)
 {
-	static char *state[2] = { "UP", "DOWN" };
-	int primary = 1, secondary = 1;
-	int down_msg = 0;
+	static char *state[2] = { "DOWN", "UP" };
+	char mode[64];
+	bool down_msg = false;
+	int i;
 
-	if (slurm_ping(1) == SLURM_SUCCESS)
-		primary = 0;
-	if (slurm_ping(2) == SLURM_SUCCESS)
-		secondary = 0;
-	fprintf(stdout, "Slurmctld(primary/backup) ");
-	if (control_machine || backup_controller) {
-		fprintf(stdout, "at ");
-		if (control_machine) {
-			fprintf(stdout, "%s/", control_machine);
-			if (primary)
-				down_msg = 1;
-		} else
-			fprintf(stdout, "(NULL)/");
-		if (backup_controller) {
-			fprintf(stdout, "%s ", backup_controller);
-			if (secondary)
-				down_msg = 1;
-		} else
-			fprintf(stdout, "(NULL) ");
+	for (i = 0; i < control_cnt; i++) {
+		int status = 0;
+		if (slurm_ping(i + 1) == SLURM_SUCCESS)
+			status = 1;
+		else
+			down_msg = true;
+		if (i == 0)
+			snprintf(mode, sizeof(mode), "primary");
+		else if ((i == 1) && (control_cnt == 2))
+			snprintf(mode, sizeof(mode), "backup");
+		else
+			snprintf(mode, sizeof(mode), "backup%d", i);
+		fprintf(stdout, "Slurmctld(%s) at %s is %s\n",
+			mode, control_machine[i], state[status]);
 	}
-	fprintf(stdout, "are %s/%s\n",
-		state[primary], state[secondary]);
 
 	if (down_msg && (getuid() == 0)) {
 		fprintf(stdout, "*****************************************\n");
