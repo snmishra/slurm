@@ -184,6 +184,11 @@ time_t  slurmctld_running_job_count_ts = 0;
 
 /* Local variables */
 static pthread_t assoc_cache_thread = (pthread_t) 0;
+static bool	bu_acct_reg = false;
+static int	bu_rc = SLURM_SUCCESS;
+static int	bu_thread_cnt = 0;
+static pthread_cond_t bu_cond = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t bu_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int	daemonize = DEFAULT_DAEMONIZE;
 static int	debug_level = 0;
 static char *	debug_logfile = NULL;
@@ -2523,9 +2528,50 @@ static void _usage(char *prog_name)
 			"\tPrint version information and exit.\n");
 }
 
+static void *_shutdown_bu_thread(void *arg)
+{
+	int bu_inx, rc = SLURM_SUCCESS, rc2;
+	slurm_msg_t req;
+	bool acct_reg = false;
+
+	bu_inx = *((int *) arg);
+	xfree(arg);
+
+	slurm_msg_t_init(&req);
+	slurm_set_addr(&req.address, slurmctld_conf.slurmctld_port,
+		       slurmctld_conf.control_addr[bu_inx]);
+	req.msg_type = REQUEST_CONTROL;
+	if (slurm_send_recv_rc_msg_only_one(&req, &rc2,
+				(CONTROL_TIMEOUT * 1000)) < 0) {
+		error("%s:send/recv: %m", __func__);
+		rc = SLURM_ERROR;
+	}
+	if (rc2 == ESLURM_DISABLED) {
+		debug("backup controller responding");
+	} else if (rc2 == 0) {
+		debug("backup controller has relinquished control");
+		acct_reg = true;
+	} else {
+		error("%s (%s): %s", __func__,
+		      slurmctld_conf.control_machine[bu_inx],
+		      slurm_strerror(rc2));
+		rc = SLURM_ERROR;
+	}
+
+	slurm_mutex_lock(&bu_mutex);
+	if (acct_reg)
+		bu_acct_reg = true;
+	if (rc != SLURM_SUCCESS)
+		bu_rc = rc;
+	bu_thread_cnt--;
+	slurm_cond_signal(&bu_cond);
+	slurm_mutex_unlock(&bu_mutex);
+	return NULL;
+}
+
 /*
  * Tell the backup_controllers to relinquish control, primary control_machine
- *	has resumed operation
+ *	has resumed operation. Messages sent to all controllers in parallel.
  * wait_time - How long to wait for backup controller to write state, seconds.
  *             Must be zero when called from _slurmctld_background() loop.
  * RET 0 or an error code
@@ -2533,38 +2579,28 @@ static void _usage(char *prog_name)
  */
 static int _shutdown_backup_controller(int wait_time)
 {
-	int i, rc = SLURM_SUCCESS, rc2;
-	slurm_msg_t req;
-	bool acct_reg = false;
+	int i, *arg;
 
+	bu_acct_reg = false;
+	bu_rc = SLURM_SUCCESS;
 	for (i = 1; i < slurmctld_conf.control_cnt; i++) {
 		if ((slurmctld_conf.control_addr[i] == NULL) ||
 		    (slurmctld_conf.control_addr[i][0] == '\0'))
 			continue;
 
-		/* send request message */
-		slurm_msg_t_init(&req);
-		slurm_set_addr(&req.address, slurmctld_conf.slurmctld_port,
-			       slurmctld_conf.control_addr[i]);
-		req.msg_type = REQUEST_CONTROL;
-
-		if (slurm_send_recv_rc_msg_only_one(&req, &rc2,
-					(CONTROL_TIMEOUT * 1000)) < 0) {
-			error("%s:send/recv: %m", __func__);
-			rc = SLURM_ERROR;
-		}
-		if (rc2 == ESLURM_DISABLED) {
-			debug("backup controller responding");
-		} else if (rc2 == 0) {
-			debug("backup controller has relinquished control");
-			acct_reg = true;
-		} else {
-			error("%s (%s): %s", __func__,
-			      slurmctld_conf.control_machine[i],
-			      slurm_strerror(rc2));
-			rc = SLURM_ERROR;
-		}
+		arg = xmalloc(sizeof(int));
+		*arg = i;
+		slurm_thread_create_detached(NULL, _shutdown_bu_thread, arg);
+		slurm_mutex_lock(&bu_mutex);
+		bu_thread_cnt++;
+		slurm_mutex_unlock(&bu_mutex);
 	}
+
+	slurm_mutex_lock(&bu_mutex);
+	while (bu_thread_cnt != 0) {
+		slurm_cond_wait(&bu_cond, &bu_mutex);
+	}
+	slurm_mutex_unlock(&bu_mutex);
 
 	if (wait_time) {
 		/*
@@ -2576,7 +2612,7 @@ static int _shutdown_backup_controller(int wait_time)
 		 * to shutdown
 		 */
 		sleep(wait_time);
-	} else if (acct_reg) {
+	} else if (bu_acct_reg) {
 		/*
 		 * In case primary controller really did not terminate,
 		 * but just temporarily became non-responsive
@@ -2585,7 +2621,7 @@ static int _shutdown_backup_controller(int wait_time)
 					slurmctld_conf.slurmctld_port);
 	}
 
-	return rc;
+	return bu_rc;
 }
 
 /* Reset the job credential key based upon configuration parameters
