@@ -2902,11 +2902,13 @@ slurm_conf_lock(void)
 	slurm_mutex_lock(&conf_lock);
 	if (!conf_initialized) {
 		if (_init_slurm_conf(NULL) != SLURM_SUCCESS) {
-			/* Clearing control_addr array entries results in
+			/*
+			 * Clearing control_addr array entries results in
 			 * error for most APIs without generating a fatal
 			 * error and exiting. Slurm commands and daemons
 			 * should call slurm_conf_init() to get a fatal
-			 * error instead. */
+			 * error instead.
+			 */
 			for (i = 0; i < MAX_CONTROLLERS; i++)
 				xfree(conf_ptr->control_addr[i]);
 			xfree(conf_ptr->control_addr);
