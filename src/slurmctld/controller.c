@@ -1687,7 +1687,6 @@ static bool _is_primary_ctld(void)
 			     slurmctld_conf.control_machine[i]) ||
 		    !xstrcmp(node_name_long,
 			     slurmctld_conf.control_machine[i])) {
-			debug("This node is BackupController%d", i-1);
 			is_primary = false;
 			break;
 		}
