@@ -16,6 +16,9 @@
 int
 slurm_ctl_conf_to_hv(slurm_ctl_conf_t *conf, HV *hv)
 {
+	AV *av;
+	int i;
+
 	STORE_FIELD(hv, conf, last_update, time_t);
 
 	if (conf->acct_gather_conf)
@@ -73,15 +76,15 @@ slurm_ctl_conf_to_hv(slurm_ctl_conf_t *conf, HV *hv)
 	STORE_FIELD(hv, conf, complete_wait, uint16_t);
 
 //FIXME: Not sure how to handle this in Perl, test36.1 fails
-	/* Only store primary and first backup controller information for now */
-	if (conf->control_addr[0])
-		STORE_FIELD(hv, conf, control_addr[0], charp);
-	if (conf->control_machine[0])
-		STORE_FIELD(hv, conf, control_machine[0], charp);
-	if ((conf->control_cnt > 1) && conf->control_addr[1])
-		STORE_FIELD(hv, conf, control_addr[1], charp);
-	if ((conf->control_cnt > 1) && conf->control_machine[1])
-		STORE_FIELD(hv, conf, control_machine[1], charp);
+	STORE_FIELD(hv, conf, control_cnt, uint32_t);
+	av = newAV();
+	for (i = 0; i < conf->control_cnt; i++)
+		av_store(av, i, newSVpv(conf->control_addr[i], 0));
+	hv_store_sv(hv, "control_addr", newRV_noinc((SV*)av));
+	av = newAV();
+	for (i = 0; i < conf->control_cnt; i++)
+		av_store(av, i, newSVpv(conf->control_machine[i], 0));
+	hv_store_sv(hv, "control_machine", newRV_noinc((SV*)av));
 
 	STORE_FIELD(hv, conf, cpu_freq_def, uint32_t);
 
@@ -402,6 +405,11 @@ slurm_ctl_conf_to_hv(slurm_ctl_conf_t *conf, HV *hv)
 int
 hv_to_slurm_ctl_conf(HV *hv, slurm_ctl_conf_t *conf)
 {
+	SV **svp;
+	AV *av;
+	STRLEN len;
+	int i, n;
+
 	memset(conf, 0, sizeof(slurm_ctl_conf_t));
 
 	FETCH_FIELD(hv, conf, last_update, time_t, FALSE);
@@ -433,7 +441,32 @@ hv_to_slurm_ctl_conf(HV *hv, slurm_ctl_conf_t *conf)
 	FETCH_FIELD(hv, conf, complete_wait, uint16_t, TRUE);
 
 //FIXME: Not sure how to handle this in Perl, test36.1 fails
-	/* Only store primary and first backup controller information for now */
+	FETCH_FIELD(hv, conf, control_cnt, uint32_t, TRUE);
+	svp = hv_fetch(hv, "control_addr", 12, FALSE);
+	if (svp && SvROK(*svp) && SvTYPE(SvRV(*svp)) == SVt_PVAV) {
+		av = (AV*)SvRV(*svp);
+		n = av_len(av);
+		conf->control_addr = xmalloc(n * sizeof(char *));
+		for (i = 0; i < n; i++) {
+			conf->control_addr[i] =
+				(char *)SvPV(*(av_fetch(av, i, FALSE)), len);
+		}
+	} else {
+		/* nothing to do */
+	}
+	svp = hv_fetch(hv, "control_machine", 12, FALSE);
+	if (svp && SvROK(*svp) && SvTYPE(SvRV(*svp)) == SVt_PVAV) {
+		av = (AV*)SvRV(*svp);
+		n = av_len(av);
+		conf->control_addr = xmalloc(n * sizeof(char *));
+		for (i = 0; i < n; i++) {
+			conf->control_machine[i] =
+				(char *)SvPV(*(av_fetch(av, i, FALSE)), len);
+		}
+	} else {
+		/* nothing to do */
+	}
+
 	FETCH_FIELD(hv, conf, control_addr[0], charp, FALSE);
 	FETCH_FIELD(hv, conf, control_machine[0], charp, FALSE);
 	FETCH_FIELD(hv, conf, control_addr[1], charp, FALSE);
