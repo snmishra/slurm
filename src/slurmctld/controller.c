@@ -2012,10 +2012,12 @@ static void *_slurmctld_background(void *no_data)
 			reset_stats(0);
 		}
 
-		/* Reassert this machine as the primary controller.
+		/*
+		 * Reassert this machine as the primary controller.
 		 * A network or security problem could result in
 		 * the backup controller assuming control even
-		 * while the real primary controller is running */
+		 * while the real primary controller is running.
+		 */
 //FIXME: Work required here?
 		lock_slurmctld(config_read_lock);
 		if (slurmctld_conf.slurmctld_timeout   &&
@@ -2033,7 +2035,8 @@ static void *_slurmctld_background(void *no_data)
 		unlock_slurmctld(config_read_lock);
 
 		if (difftime(now, last_uid_update) >= 3600) {
-			/* Make sure we update the uids in the
+			/*
+			 * Make sure we update the uids in the
 			 * assoc_mgr if there were any users
 			 * with unknown uids at the time of startup.
 			 */
@@ -3060,7 +3063,9 @@ static int _backup_index(void)
 	return -1;
 }
 
-/* Return true if node_name (a global) is a valid controller host name */
+/*
+ * Return true if node_name (a global) is a valid controller host name
+ */
 static bool  _valid_controller(void)
 {
 	bool match = false;

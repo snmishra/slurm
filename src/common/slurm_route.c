@@ -140,13 +140,15 @@ static void _set_collectors(char *this_node_name)
 	if (!run_in_daemon("slurmd"))
 		return; /* Only compute nodes have collectors */
 
-	/* Set the initial iteration, collector is controller,
-	 * full list is split */
+	/*
+	 * Set the initial iteration, collector is controller,
+	 * full list is split
+	 */
 	xassert(this_node_name);
 
 	conf = slurm_conf_lock();
 	nodes = _get_all_nodes();
-//FIXME: Modify for multiple backups
+//FIXME-BACKUP: Modify this logic for >1 backup
 	parent = strdup(conf->control_addr[0]);
 	if (conf->control_addr[1])
 		backup = strdup(conf->control_addr[1]);
@@ -159,7 +161,7 @@ static void _set_collectors(char *this_node_name)
 			goto clean; /* collector addrs remains null */
 		}
 		/* Find which hostlist contains this node */
-		for (i=0; i < hl_count; i++) {
+		for (i = 0; i < hl_count; i++) {
 			f = hostlist_find(hll[i], this_node_name);
 			if (f != -1)
 				break;
@@ -169,16 +171,18 @@ static void _set_collectors(char *this_node_name)
 			      this_node_name);
 		}
 		if (f == 0) {
-			/* we are a forwarded to node,
-			 * so our parent is parent */
+			/*
+			 * we are a forwarded to node,
+			 * so our parent is "parent"
+			 */
 			if (hostlist_count(hll[i]) > 1)
 				this_is_collector = true;
 			xfree(msg_collect_node);
 			msg_collect_node = xmalloc(sizeof(slurm_addr_t));
-			if (ctldparent)
+			if (ctldparent) {
 				slurm_set_addr(msg_collect_node, parent_port,
 					       parent);
-			else {
+			} else {
 				slurm_conf_get_addr(parent, msg_collect_node);
 				msg_collect_node->sin_port = htons(parent_port);
 			}
@@ -214,11 +218,13 @@ static void _set_collectors(char *this_node_name)
 			goto clean;
 		}
 
-		/* We are not a forwarding node, the first node in this list
+		/*
+		 * We are not a forwarding node, the first node in this list
 		 * will split the forward_list.
 		 * We also know that the forwarding node is not a controller.
 		 *
-		 * clean up parent context */
+		 * clean up parent context
+		 */
 		ctldparent = false;
 		hostlist_destroy(nodes);
 		if (parent)
@@ -226,7 +232,7 @@ static void _set_collectors(char *this_node_name)
 		if (backup)
 			free(backup);
 		nodes = hostlist_copy(hll[i]);
-		for (j=0; j < hl_count; j++) {
+		for (j = 0; j < hl_count; j++) {
 			hostlist_destroy(hll[j]);
 		}
 		xfree(hll);
@@ -263,7 +269,7 @@ clean:
 		free(parent);
 	if (backup)
 		free(backup);
-	for (i=0; i < hl_count; i++) {
+	for (i = 0; i < hl_count; i++) {
 		hostlist_destroy(hll[i]);
 	}
 	xfree(hll);
