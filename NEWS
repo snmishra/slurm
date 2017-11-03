@@ -15,6 +15,9 @@ documents those changes that are of interest to users and administrators.
     * Output format of "scontrol ping" and the daemon status at the end of
       "scontrol status" is modified to report up status of the primary and all
       backup servers.
+    * "scontrol takeover [#]" command can now identify the BackupController
+      index number. Default value is "1" (the configured "BackupController" or
+      "BackupController1" node).
 
 * Changes in Slurm 17.11.0rc3
 ==============================

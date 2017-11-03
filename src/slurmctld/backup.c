@@ -78,9 +78,16 @@ static void	     _trigger_slurmctld_event(uint32_t trig_type);
 inline static void  _update_cred_key(void);
 
 /* Local variables */
-static bool          dump_core = false;
-static volatile bool takeover = false;
-static time_t last_controller_response;
+static bool		dump_core = false;
+static time_t		last_controller_response;
+static char		node_name_short[MAX_SLURM_NAME];
+static char		node_name_long[MAX_SLURM_NAME];
+static volatile bool	takeover = false;
+static pthread_cond_t	shutdown_cond = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t	shutdown_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int		shutdown_rc = SLURM_SUCCESS;
+static int		shutdown_thread_cnt = 0;
+static int		shutdown_timeout = 0;
 
 /*
  * Static list of signals to block in this process
@@ -98,7 +105,7 @@ static int backup_sigarray[] = {
  */
 void run_backup(slurm_trigger_callbacks_t *callbacks)
 {
-	int i;
+	int error_code, i;
 	uint32_t trigger_type;
 	time_t last_ping = 0;
 	slurmctld_lock_t config_read_lock = {
@@ -109,6 +116,11 @@ void run_backup(slurm_trigger_callbacks_t *callbacks)
 	info("slurmctld running in background mode");
 	takeover = false;
 	last_controller_response = time(NULL);
+
+	if ((error_code = gethostname_short(node_name_short, MAX_SLURM_NAME)))
+		error("getnodename_short error %s", slurm_strerror(error_code));
+	if ((error_code = gethostname(node_name_long, MAX_SLURM_NAME)))
+		error("getnodename error %s", slurm_strerror(error_code));
 
 	/* default: don't resume if shutdown */
 	slurmctld_config.resume_backup = false;
@@ -416,7 +428,7 @@ static int _background_process_msg(slurm_msg_t * msg)
 		} else if (super_user &&
 			   (msg->msg_type == REQUEST_TAKEOVER)) {
 			info("Performing RPC: REQUEST_TAKEOVER");
-			_shutdown_primary_controller(SHUTDOWN_WAIT);
+			(void) _shutdown_primary_controller(SHUTDOWN_WAIT);
 			takeover = true;
 			error_code = SLURM_SUCCESS;
 		} else if (super_user &&
@@ -487,9 +499,45 @@ static void _backup_reconfig(void)
 	return;
 }
 
+static void *_shutdown_controller(void *arg)
+{
+	int shutdown_inx, rc = SLURM_SUCCESS, rc2 = SLURM_SUCCESS;
+	slurm_msg_t req;
+
+	shutdown_inx = *((int *) arg);
+	xfree(arg);
+
+	slurm_msg_t_init(&req);
+	slurm_set_addr(&req.address, slurmctld_conf.slurmctld_port,
+		       slurmctld_conf.control_addr[shutdown_inx]);
+	req.msg_type = REQUEST_CONTROL;
+	if (slurm_send_recv_rc_msg_only_one(&req, &rc2, shutdown_timeout) < 0) {
+		error("%s: send/recv(%s): %m", __func__,
+		      slurmctld_conf.control_machine[shutdown_inx]);
+		rc = SLURM_ERROR;
+	} else if (rc2 == ESLURM_DISABLED) {
+		debug("primary controller responding");
+	} else if (rc2 == SLURM_SUCCESS) {
+		debug("primary controller has relinquished control");
+	} else {
+		error("%s(%s): %s", __func__,
+		      slurmctld_conf.control_machine[shutdown_inx],
+		      slurm_strerror(rc2));
+		rc = SLURM_ERROR;
+	}
+
+	slurm_mutex_lock(&shutdown_mutex);
+	if (rc != SLURM_SUCCESS)
+		shutdown_rc = rc;
+	shutdown_thread_cnt--;
+	slurm_cond_signal(&shutdown_cond);
+	slurm_mutex_unlock(&shutdown_mutex);
+	return NULL;
+}
+
 /*
- * Tell the primary_controller to relinquish control, primary control_machine
- *	has to suspend operation
+ * Tell the primary controller and all other possible controller daemons to
+ *	relinquish control, primary control_machine has to suspend operation
  * Based on _shutdown_backup_controller from controller.c
  * wait_time - How long to wait for primary controller to write state, seconds.
  * RET 0 or an error code
@@ -497,37 +545,43 @@ static void _backup_reconfig(void)
  */
 static int _shutdown_primary_controller(int wait_time)
 {
-	int rc;
+	int i, *arg;
 	slurm_msg_t req;
 
-//FIXME-BACKUP: Modify this logic for >1 backup
+	if (shutdown_timeout == 0) {
+		shutdown_timeout = slurm_get_msg_timeout() / 2;
+		shutdown_timeout = MAX(shutdown_timeout, 2);	/* 2 sec min */
+		shutdown_timeout = MIN(shutdown_timeout, CONTROL_TIMEOUT);
+		shutdown_timeout *= 1000;	/* sec to msec */
+	}
 	slurm_msg_t_init(&req);
 	if ((slurmctld_conf.control_addr[0] == NULL) ||
 	    (slurmctld_conf.control_addr[0][0] == '\0')) {
-		error("_shutdown_primary_controller: "
-		      "no primary controller to shutdown");
+		error("%s: no primary controller to shutdown", __func__);
 		return SLURM_ERROR;
 	}
 
-	slurm_set_addr(&req.address, slurmctld_conf.slurmctld_port,
-		       slurmctld_conf.control_addr[0]);
+	shutdown_rc = SLURM_SUCCESS;
+	for (i = 0; i < slurmctld_conf.control_cnt; i++) {
+		if (!xstrcmp(node_name_short,
+			     slurmctld_conf.control_machine[i]) ||
+		    !xstrcmp(node_name_long,
+			     slurmctld_conf.control_machine[i]))
+			continue;	/* No message to self */
 
-	/* send request message */
-	req.msg_type = REQUEST_CONTROL;
+		arg = xmalloc(sizeof(int));
+		*arg = i;
+		slurm_thread_create_detached(NULL, _shutdown_controller, arg);
+		slurm_mutex_lock(&shutdown_mutex);
+		shutdown_thread_cnt++;
+		slurm_mutex_unlock(&shutdown_mutex);
+	}
 
-	if (slurm_send_recv_rc_msg_only_one(&req, &rc,
-				(CONTROL_TIMEOUT * 1000)) < 0) {
-		error("_shutdown_primary_controller:send/recv: %m");
-		return SLURM_ERROR;
+	slurm_mutex_lock(&shutdown_mutex);
+	while (shutdown_thread_cnt != 0) {
+		slurm_cond_wait(&shutdown_cond, &shutdown_mutex);
 	}
-	if (rc == ESLURM_DISABLED)
-		debug("primary controller responding");
-	else if (rc == 0) {
-		debug("primary controller has relinquished control");
-	} else {
-		error("_shutdown_primary_controller: %s", slurm_strerror(rc));
-		return SLURM_ERROR;
-	}
+	slurm_mutex_unlock(&shutdown_mutex);
 
 	/*
 	 * FIXME: Ideally the REQUEST_CONTROL RPC does not return until all
@@ -539,7 +593,7 @@ static int _shutdown_primary_controller(int wait_time)
 	if (wait_time)
 		sleep(wait_time);
 
-	return SLURM_SUCCESS;
+	return shutdown_rc;
 }
 
 static void _trigger_slurmctld_event(uint32_t trig_type)

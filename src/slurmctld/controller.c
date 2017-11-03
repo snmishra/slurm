@@ -2548,7 +2548,7 @@ static void _usage(char *prog_name)
 
 static void *_shutdown_bu_thread(void *arg)
 {
-	int bu_inx, rc = SLURM_SUCCESS, rc2;
+	int bu_inx, rc = SLURM_SUCCESS, rc2 = SLURM_SUCCESS;
 	slurm_msg_t req;
 	bool acct_reg = false;
 
@@ -2563,10 +2563,9 @@ static void *_shutdown_bu_thread(void *arg)
 				(CONTROL_TIMEOUT * 1000)) < 0) {
 		error("%s:send/recv: %m", __func__);
 		rc = SLURM_ERROR;
-	}
-	if (rc2 == ESLURM_DISABLED) {
+	} else if (rc2 == ESLURM_DISABLED) {
 		debug("backup controller responding");
-	} else if (rc2 == 0) {
+	} else if (rc2 == SLURM_SUCCESS) {
 		debug("backup controller has relinquished control");
 		acct_reg = true;
 	} else {

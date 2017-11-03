@@ -3114,15 +3114,15 @@ extern int slurm_open_controller_conn_spec(int dest,
 				comm_cluster_rec->control_host);
 		}
 		addr = &comm_cluster_rec->control_addr;
-	} else if (dest == 0)	/* Primary */
+	} else if (dest == 0) {	/* Primary */
 		addr = &proto_conf->controller_addr[0];
-	else {			/* Some backup slurmctld */
+	} else {	/* Some backup slurmctld */
 		slurm_ctl_conf_t *conf;
 		addr = NULL;
 		conf = slurm_conf_lock();
-		if (conf->control_addr[dest])
+		if ((dest > 0) && (dest <= conf->control_cnt) &&
+		    conf->control_addr[dest])
 			addr = &proto_conf->controller_addr[dest];
-
 		slurm_conf_unlock();
 		if (!addr)
 			return SLURM_ERROR;

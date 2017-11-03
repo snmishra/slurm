@@ -1315,25 +1315,41 @@ static int _process_command (int argc, char **argv)
 		}
 	}
 	else if (xstrncasecmp(tag, "takeover", MAX(tag_len, 8)) == 0) {
-		char *secondary = NULL;
+		int backup_inx = 1, control_cnt;
 		slurm_ctl_conf_info_msg_t  *slurm_ctl_conf_ptr = NULL;
 
 		slurm_ctl_conf_ptr = slurm_conf_lock();
-		secondary = xstrdup(slurm_ctl_conf_ptr->control_machine[1]);
+		control_cnt = slurm_ctl_conf_ptr->control_cnt;
 		slurm_conf_unlock();
-//FIXME: Modify for more backups
-		if (secondary && secondary[0]) {
-			error_code = slurm_takeover();
+		if (argc > 2) {
+			exit_code = 1;
+			fprintf(stderr, "%s: too many arguments\n",
+				tag);
+			backup_inx = -1;
+		} else if (argc == 2) {
+			backup_inx = atoi(argv[1]);
+			if ((backup_inx < 1) || (backup_inx >= control_cnt)) {
+				exit_code = 1;
+				fprintf(stderr,
+					"%s: invalid backup controller index (%d)\n",
+					tag, backup_inx);
+				backup_inx = -1;
+			}
+		} else if (control_cnt < 1) {
+			exit_code = 1;
+			fprintf(stderr, "%s: no backup controller defined\n",
+				tag);
+			backup_inx = -1;
+		}
+
+		if (backup_inx != -1) {
+			error_code = slurm_takeover(backup_inx);
 			if (error_code) {
 				exit_code = 1;
 				if (quiet_flag != 1)
 					slurm_perror("slurm_takeover error");
 			}
-		} else {
-			fprintf(stderr, "slurm_takeover error: no backup "
-				"controller defined\n");
 		}
-		xfree(secondary);
 	}
 	else if (xstrncasecmp(tag, "shutdown", MAX(tag_len, 8)) == 0) {
 		/* require full command name */

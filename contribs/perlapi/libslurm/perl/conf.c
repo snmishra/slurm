@@ -75,7 +75,6 @@ slurm_ctl_conf_to_hv(slurm_ctl_conf_t *conf, HV *hv)
 
 	STORE_FIELD(hv, conf, complete_wait, uint16_t);
 
-//FIXME: Not sure how to handle this in Perl, test36.1 fails
 	STORE_FIELD(hv, conf, control_cnt, uint32_t);
 	av = newAV();
 	for (i = 0; i < conf->control_cnt; i++)
@@ -440,7 +439,6 @@ hv_to_slurm_ctl_conf(HV *hv, slurm_ctl_conf_t *conf)
 	FETCH_FIELD(hv, conf, cluster_name, charp, FALSE);
 	FETCH_FIELD(hv, conf, complete_wait, uint16_t, TRUE);
 
-//FIXME: Not sure how to handle this in Perl, test36.1 fails
 	FETCH_FIELD(hv, conf, control_cnt, uint32_t, TRUE);
 	svp = hv_fetch(hv, "control_addr", 12, FALSE);
 	if (svp && SvROK(*svp) && SvTYPE(SvRV(*svp)) == SVt_PVAV) {

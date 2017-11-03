@@ -124,19 +124,21 @@ extern int slurm_shutdown(uint16_t options)
 }
 
 /*
- * slurm_takeover - issue RPC to have Slurm backup controller #1 take over the
+ * slurm_takeover - issue RPC to have a Slurm backup controller take over the
  *                  primary controller. REQUEST_CONTROL is sent by the backup
  *                  to the primary controller to take control
+ * backup_inx IN - Index of BackupController to assume controller (typically 1)
  * RET 0 or a slurm error code
  */
-extern int slurm_takeover(void)
+extern int slurm_takeover(int backup_inx)
 {
 	slurm_msg_t req_msg;
 
 	slurm_msg_t_init(&req_msg);
 	req_msg.msg_type     = REQUEST_TAKEOVER;
-//FIXME-BACKUP: Probably want to contact >1 backup on failure
-	return _send_message_controller(1, &req_msg);
+	if (backup_inx < 1)
+		return SLURMCTLD_COMMUNICATIONS_CONNECTION_ERROR;
+	return _send_message_controller(backup_inx, &req_msg);
 }
 
 static int _send_message_controller(int dest, slurm_msg_t *req)

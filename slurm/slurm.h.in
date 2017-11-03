@@ -4696,12 +4696,13 @@ extern int slurm_reconfigure(void);
 extern int slurm_shutdown(uint16_t options);
 
 /*
- * slurm_takeover - issue RPC to have Slurm backup controller (slurmctld)
- *	take over the primary controller.
- *
+ * slurm_takeover - issue RPC to have a Slurm backup controller take over the
+ *                  primary controller. REQUEST_CONTROL is sent by the backup
+ *                  to the primary controller to take control
+ * backup_inx IN - Index of BackupController to assume controller (typically 1)
  * RET 0 or a slurm error code
  */
-extern int slurm_takeover(void);
+extern int slurm_takeover(int backup_inx);
 
 /*
  * slurm_set_debugflags - issue RPC to set slurm controller debug flags
