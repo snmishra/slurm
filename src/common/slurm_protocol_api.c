@@ -3063,7 +3063,6 @@ extern int slurm_open_controller_conn(slurm_addr_t *addr, bool *use_backup,
 					slurm_conf_unlock();
 				}
 			}
-//FIXME-BACKUP: Modify this logic for >1 backup
 			if ((backup_cnt > 0) || *use_backup) {
 				for (i = 1; i <= backup_cnt; i++) {
 				fd = slurm_open_msg_conn(&myproto->
@@ -4383,7 +4382,7 @@ tryagain:
 	have_backup = conf->control_machine[1] ? true : false;
 	slurmctld_timeout = conf->slurmctld_timeout;
 	slurm_conf_unlock();
-//FIXME-BACKUP: Modify this logic for >1 backup
+
 	while (retry) {
 		/*
 		 * If the backup controller is in the process of assuming
