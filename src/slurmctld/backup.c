@@ -325,8 +325,7 @@ static void _sig_handler(int signal)
  */
 static void *_background_rpc_mgr(void *no_data)
 {
-	int newsockfd;
-	int sockfd;
+	int i, newsockfd, sockfd;
 	slurm_addr_t cli_addr;
 	slurm_msg_t msg;
 	int error_code;
@@ -345,10 +344,14 @@ static void *_background_rpc_mgr(void *no_data)
 	lock_slurmctld(config_read_lock);
 
 	/* set node_addr to bind to (NULL means any) */
-//FIXME-BACKUP: Modify this logic for >1 backup
-	if ((xstrcmp(slurmctld_conf.control_machine[1],
-		     slurmctld_conf.control_addr[1]) != 0)) {
-		node_addr = slurmctld_conf.control_addr[1];
+	for (i = 1; i < slurmctld_conf.control_cnt; i++) {
+		if (!xstrcmp(node_name_short,
+			     slurmctld_conf.control_machine[i]) ||
+		    !xstrcmp(node_name_long,
+			     slurmctld_conf.control_machine[i])) {  /* Self */
+			node_addr = slurmctld_conf.control_addr[i];
+			break;
+		}
 	}
 
 	if ((sockfd =
