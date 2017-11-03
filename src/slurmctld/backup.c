@@ -74,7 +74,7 @@ static void *       _background_signal_hand(void *no_data);
 static void         _backup_reconfig(void);
 static int          _ping_controller(void);
 static int          _shutdown_primary_controller(int wait_time);
-static void	     _trigger_slurmctld_event(uint32_t trig_type);
+static void *       _trigger_slurmctld_event(void *arg);
 inline static void  _update_cred_key(void);
 
 /* Local variables */
@@ -115,7 +115,6 @@ static int backup_sigarray[] = {
 void run_backup(slurm_trigger_callbacks_t *callbacks)
 {
 	int error_code, i;
-	uint32_t trigger_type;
 	time_t last_ping = 0;
 	slurmctld_lock_t config_read_lock = {
 		READ_LOCK, NO_LOCK, NO_LOCK, NO_LOCK, NO_LOCK };
@@ -147,8 +146,8 @@ void run_backup(slurm_trigger_callbacks_t *callbacks)
 	 */
 	slurm_thread_create(&slurmctld_config.thread_id_sig,
 			    _background_signal_hand, NULL);
-	trigger_type = TRIGGER_TYPE_BU_CTLD_RES_OP;
-	_trigger_slurmctld_event(trigger_type);
+
+	slurm_thread_create_detached(NULL, _trigger_slurmctld_event, NULL);
 
 	for (i = 0; ((i < 5) && (slurmctld_config.shutdown_time == 0)); i++) {
 		sleep(1);       /* Give the primary slurmctld set-up time */
@@ -640,19 +639,19 @@ static int _shutdown_primary_controller(int wait_time)
 	return shutdown_rc;
 }
 
-static void _trigger_slurmctld_event(uint32_t trig_type)
+static void *_trigger_slurmctld_event(void *arg)
 {
 	trigger_info_t ti;
 
 	memset(&ti, 0, sizeof(trigger_info_t));
 	ti.res_id = "*";
 	ti.res_type = TRIGGER_RES_TYPE_SLURMCTLD;
-	ti.trig_type = trig_type;
+	ti.trig_type = TRIGGER_TYPE_BU_CTLD_RES_OP;
 	if (slurm_pull_trigger(&ti)) {
-		error("_trigger_slurmctld_event %u failure in backup.c: %m",
-		      trig_type);
-		return;
+		error("%s: TRIGGER_TYPE_BU_CTLD_RES_OP send failure: %m",
+		      __func__);
+	} else {
+		verbose("%s: TRIGGER_TYPE_BU_CTLD_RES_OP sent", __func__);
 	}
-	verbose("trigger pulled for SLURMCTLD event %u successful", trig_type);
-	return;
+	return NULL;
 }
