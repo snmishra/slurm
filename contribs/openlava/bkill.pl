@@ -54,8 +54,9 @@ my ($help,
 GetOptions(
         'h' => \$help,
         'man'    => \$man,
-	)
-	or pod2usage(2);
+        'J=s' => \$job_name,
+       )
+       or pod2usage(2);
 
 # Display usage if necessary
 pod2usage(0) if $help;
@@ -94,6 +95,15 @@ foreach my $jobid (@job_ids) {
 }
 
 my $rc = 0;
+if (defined $job_name) {
+       my $jresp = Slurm->load_jobs();
+       die "Problem loading jobs.\n" if(!$jresp);
+       foreach my $job (@{$jresp->{job_array}}) {
+	       if($job->{'name'} eq $job_name) {
+		       push @job_ids, $job->{'job_id'};
+	       }
+       }
+}
 foreach my $jobid (@job_ids) {
 	my $err = 0;
 	my $resp = 0;

@@ -103,12 +103,14 @@ sub _print_job_brief
 }
 
 # Parse Command Line Arguments
-my ($help,
+my ($job_name,
+    $help,
     $man);
 
 GetOptions(
         'h' => \$help,
         'man'    => \$man,
+        'J=s'    => \$job_name,
 	) or pod2usage(2);
 
 
@@ -161,6 +163,9 @@ foreach my $job (@{$resp->{job_array}}) {
 	# Filter jobs according to options and arguments
 	if (@job_ids) {
 		next unless grep /^$job->{'job_id'}$/, @job_ids;
+	}
+	if (defined $job_name) {
+		next unless $job->{'name'} eq $job_name;
 	}
 
 	_print_job_brief($job, $line++);
