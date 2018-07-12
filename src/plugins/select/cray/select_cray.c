@@ -2257,14 +2257,6 @@ extern int select_p_step_finish(struct step_record *step_ptr, bool killing_step)
 	return SLURM_SUCCESS;
 }
 
-extern int select_p_pack_select_info(time_t last_query_time,
-				     uint16_t show_flags, Buf *buffer_ptr,
-				     uint16_t protocol_version)
-{
-	return other_pack_select_info(last_query_time, show_flags, buffer_ptr,
-				      protocol_version);
-}
-
 extern select_nodeinfo_t *select_p_select_nodeinfo_alloc(void)
 {
 	select_nodeinfo_t *nodeinfo = xmalloc(sizeof(struct select_nodeinfo));
@@ -2624,19 +2616,9 @@ extern char *select_p_select_jobinfo_xstrdup(select_jobinfo_t *jobinfo,
 	return buf;
 }
 
-extern int select_p_update_block(update_block_msg_t *block_desc_ptr)
+extern int select_p_update_basil(void)
 {
-	return other_update_block(block_desc_ptr);
-}
-
-extern int select_p_update_sub_node(update_block_msg_t *block_desc_ptr)
-{
-	return other_update_sub_node(block_desc_ptr);
-}
-
-extern int select_p_fail_cnode(struct step_record *step_ptr)
-{
-	return other_fail_cnode(step_ptr);
+	return SLURM_SUCCESS;
 }
 
 extern int select_p_get_info_from_plugin(enum select_plugindata_info dinfo,
@@ -2654,11 +2636,6 @@ extern int select_p_update_node_config(int index)
 extern int select_p_update_node_state(struct node_record *node_ptr)
 {
 	return other_update_node_state(node_ptr);
-}
-
-extern int select_p_alter_node_cnt(enum select_node_cnt type, void *data)
-{
-	return other_alter_node_cnt(type, data);
 }
 
 extern int select_p_reconfigure(void)
@@ -2684,14 +2661,4 @@ extern void select_p_ba_init(node_info_msg_t *node_info_ptr, bool sanity_check)
 extern int *select_p_ba_get_dims(void)
 {
 	return NULL;
-}
-
-extern void select_p_ba_fini(void)
-{
-	other_ba_fini();
-}
-
-extern bitstr_t *select_p_ba_cnodelist2bitmap(char *cnodelist)
-{
-	return other_ba_cnodelist2bitmap(cnodelist);
 }

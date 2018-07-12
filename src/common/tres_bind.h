@@ -1,11 +1,8 @@
 /*****************************************************************************\
- *  libsched_if.c - here so mpirun can dynamically link to it to make
- *  sure it doesn't go try creating a block all crazy like outside of slurm.
+ *  tres_bind.h - Define TRES binding functions
  *****************************************************************************
- *  Copyright (C) 2004-2007 The Regents of the University of California.
- *  Copyright (C) 2008-2011 Lawrence Livermore National Security.
- *  Produced at Lawrence Livermore National Laboratory (cf, DISCLAIMER).
- *  Written by Danny Auble <auble1@llnl.gov> et. al.
+ *  Copyright (C) 2018 SchedMD LLC
+ *  Written by Morris Jette
  *
  *  This file is part of Slurm, a resource management program.
  *  For details, see <https://slurm.schedmd.com/>.
@@ -36,32 +33,25 @@
  *  with Slurm; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA.
 \*****************************************************************************/
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
 
-int get_parameters(void *params)
-{
-	char *partition;
+#ifndef _TRES_BIND_H_
+#define _TRES_BIND_H_
 
-	/* Always allow root to run no matter what.  This is needed
-	   for HTC mode where it is common to run outside of SLURM.
-	*/
-	if (getuid() == 0)
-		return 0;
+#include "src/slurmd/slurmd/slurmd.h"
+#include "src/slurmd/slurmstepd/slurmstepd_job.h"
 
-	/* get MPIRUN env var to see if we are inside slurm or not */
-	partition = getenv("MPIRUN_PARTITION");
-	if (!partition || (strlen(partition) < 3)) {
-		printf("YOU ARE OUTSIDE OF SLURM!!!! NOT RUNNING MPIRUN!\n");
-		return 1;
-	}
-	return 0;
-}
+/*
+ * Verify --tres-bind command line option
+ * NOTE: Separate TRES specifications with ";" rather than ","
+ *
+ * arg IN - Parameter value to check
+ * RET - -1 on error, else 0
+ *
+ * Example: gpu:closest
+ *          gpu:map_gpu:0,1
+ *          gpu:mask_gpu:0x3,0x3
+ *          gpu:map_gpu:0,1;nic:closest
+ */
+extern int tres_bind_verify_cmdline(const char *arg);
 
-void mpirun_done(int res)
-{
-	return;
-}
+#endif /* _TRES_BIND_H_ */

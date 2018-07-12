@@ -2840,7 +2840,7 @@ static int _add_job_to_nodes(struct cr_record *cr_ptr,
 			else
 				gres_list = node_ptr->gres_list;
 			gres_plugin_job_alloc(job_ptr->gres_list, gres_list,
-					      node_cnt, node_offset, cpu_cnt,
+					      node_cnt, node_offset,
 					      job_ptr->job_id, node_ptr->name,
 					      NULL);
 			gres_plugin_node_state_log(gres_list, node_ptr->name);
@@ -3113,8 +3113,6 @@ static void _init_node_cr(void)
 						      node_ptr->gres_list,
 						      job_resrcs_ptr->nhosts,
 						      node_offset,
-						      job_resrcs_ptr->
-						      cpus[node_offset],
 						      job_ptr->job_id,
 						      node_ptr->name,
 						      NULL);
@@ -3913,14 +3911,6 @@ extern int select_p_step_finish(struct step_record *step_ptr, bool killing_step)
 	return SLURM_SUCCESS;
 }
 
-extern int select_p_pack_select_info(time_t last_query_time,
-				     uint16_t show_flags, Buf *buffer_ptr,
-				     uint16_t protocol_version)
-{
-	/* This function is always invalid on normal Linux clusters */
-	return SLURM_ERROR;
-}
-
 extern int select_p_select_nodeinfo_pack(select_nodeinfo_t *nodeinfo,
 					 Buf buffer,
 					 uint16_t protocol_version)
@@ -4219,17 +4209,7 @@ extern char *select_p_select_jobinfo_xstrdup(select_jobinfo_t *jobinfo,
 	return NULL;
 }
 
-extern int select_p_update_block (update_block_msg_t *block_desc_ptr)
-{
-	return SLURM_SUCCESS;
-}
-
-extern int select_p_update_sub_node (update_block_msg_t *block_desc_ptr)
-{
-	return SLURM_SUCCESS;
-}
-
-extern int select_p_fail_cnode(struct step_record *step_ptr)
+extern int select_p_update_basil(void)
 {
 	return SLURM_SUCCESS;
 }
@@ -4247,11 +4227,6 @@ extern int select_p_update_node_config (int index)
 }
 
 extern int select_p_update_node_state (struct node_record *node_ptr)
-{
-	return SLURM_SUCCESS;
-}
-
-extern int select_p_alter_node_cnt(enum select_node_cnt type, void *data)
 {
 	return SLURM_SUCCESS;
 }
@@ -4417,17 +4392,8 @@ extern void select_p_ba_init(void)
 {
 	return;
 }
-extern void select_p_ba_fini(void)
-{
-	return;
-}
 
 extern int *select_p_ba_get_dims(void)
-{
-	return NULL;
-}
-
-extern bitstr_t *select_p_ba_cnodelist2bitmap(char *cnodelist)
 {
 	return NULL;
 }

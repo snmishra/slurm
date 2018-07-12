@@ -152,6 +152,9 @@ HIGHLIGHTS
  -- Disable local PTY output processing when using 'srun --unbuffered'. This
     prevents the PTY subsystem from inserting extraneous \r characters into
     the output stream.
+ -- Append ", with requeued tasks" to job array "end" emails if any tasks in the
+    array were requeued. This is a hint to use "sacct --duplicates" to see the
+    whole picture of the array job.
 
 RPMBUILD CHANGES
 ================
@@ -170,6 +173,10 @@ CONFIGURATION FILE CHANGES (see man appropriate man page for details)
  -- Add "NumaCpuBind" option to knl.conf file to automatically change a node's
     CpuBind parameter based upon changes to a node's NUMA mode.
  -- Remove support for "ChosLoc" configuration parameter.
+ -- Add SlurmctldParameters option allow_user_triggers to enable user-defined
+    triggers. User defined triggers are now disabled by default.
+ -- Add ResumeFailProgram slurm.conf option to specify a program that is called
+    when a node fails to respond by ResumeTimeout.
 
 COMMAND CHANGES (see man pages for details)
 ===========================================
@@ -177,6 +184,8 @@ COMMAND CHANGES (see man pages for details)
     For example "sbatch --batch=haswell ...".
  -- Report cgroup and NodeFeatures plugin configuration with scontrol and
     sview commands.
+ -- Remove the "CPUErr" value from the slurm_print_node_table() API call
+    ("scontrol show node"). This was always zero for non-BlueGene systems.
 
 OTHER CHANGES
 =============
@@ -193,8 +202,15 @@ Added members to the following struct definitions
 Added the following struct definitions
 ======================================
 
+Removed the following structs
+=============================
+ -- Removed block_job_info_t, block_info_t, block_info_msg_t.
+
 Removed members from the following struct definitions
 =====================================================
+ -- Removed node_scaling from node_info_msg_t.
+ -- Removed from job_desc_msg_t: conn_type, geometry, rotate, blrtsimage,
+    linuximage, mloaderimage, ramdiskimage.
 
 Changed the following enums and #defines
 ========================================
@@ -204,8 +220,15 @@ Added the following API's
 
 Changed the following API's
 ============================
+ -- Remove node_scaling argument to slurm_print_node_table() and
+    slurm_sprint_node_table().
 
 Removed the following API's
 ===========================
  -- Removed slurm_xslurm_strerrorcat() function.
  -- Removed slurm_xstrstrip() function.
+ -- Removed slurm_free_block_info_msg(), slurm_init_update_block_msg(),
+    slurm_load_block_info(), slurm_print_block_info(),
+    slurm_print_block_info_msg(), slurm_sprint_block_info(),
+    slurm_update_block().
+ -- Removed slurm_get_select_jobinfo().

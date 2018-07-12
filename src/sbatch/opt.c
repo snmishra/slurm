@@ -93,10 +93,7 @@ enum wrappers {
 #define OPT_NODES       0x04
 #define OPT_BOOL        0x05
 #define OPT_CORE        0x06
-#define OPT_CONN_TYPE	0x07
 #define OPT_DISTRIB	0x08
-#define OPT_NO_ROTATE	0x09
-#define OPT_GEOMETRY	0x0a
 #define OPT_MULTI	0x0b
 #define OPT_EXCLUSIVE	0x0c
 #define OPT_OVERCOMMIT	0x0d
@@ -140,7 +137,6 @@ enum wrappers {
 #define LONG_OPT_MINCORES    0x10d
 #define LONG_OPT_MINTHREADS  0x10e
 #define LONG_OPT_CORE	     0x10f
-#define LONG_OPT_CONNTYPE    0x110
 #define LONG_OPT_EXCLUSIVE   0x111
 #define LONG_OPT_BEGIN       0x112
 #define LONG_OPT_MAIL_TYPE   0x113
@@ -159,10 +155,6 @@ enum wrappers {
 #define LONG_OPT_NTASKSPERCORE   0x138
 #define LONG_OPT_MEM_PER_CPU     0x13a
 #define LONG_OPT_HINT            0x13b
-#define LONG_OPT_BLRTS_IMAGE     0x140
-#define LONG_OPT_LINUX_IMAGE     0x141
-#define LONG_OPT_MLOADER_IMAGE   0x142
-#define LONG_OPT_RAMDISK_IMAGE   0x143
 #define LONG_OPT_REBOOT          0x144
 #define LONG_OPT_GET_USER_ENV    0x146
 #define LONG_OPT_OPEN_MODE       0x147
@@ -310,7 +302,6 @@ static bool _valid_node_list(char **node_list_pptr)
 static void _opt_default(bool first_pass)
 {
 	char buf[MAXPATHLEN + 1];
-	int i;
 	uid_t uid = getuid();
 
 	/* Some options will persist for all components of a heterogeneous job
@@ -393,10 +384,6 @@ static void _opt_default(bool first_pass)
 	xfree(opt.burst_buffer);
 	xfree(opt.constraints);
 	opt.contiguous			= false;
-	for (i = 0; i < HIGHEST_DIMENSIONS; i++) {
-		opt.conn_type[i]	 = NO_VAL16;
-		opt.geometry[i]	 	= 0;
-	}
 	opt.core_spec			= NO_VAL16;
 	opt.cores_per_socket		= NO_VAL; /* requested cores */
 	opt.cpu_freq_gov		= NO_VAL;
@@ -405,7 +392,6 @@ static void _opt_default(bool first_pass)
 	opt.cpus_per_task		= 0;
 	opt.cpus_set			= false;
 	opt.distribution		= SLURM_DIST_UNKNOWN;
-	/* opt.geometry[i]	See above */
 	xfree(opt.gres);
 	opt.hint_env			= NULL;
 	opt.hint_set			= false;
@@ -420,7 +406,6 @@ static void _opt_default(bool first_pass)
 	opt.mem_per_cpu			= -1;
 	opt.pn_min_cpus			= -1;
 	opt.min_nodes			= 1;
-	opt.no_rotate			= false;
 	xfree(opt.nodelist);
 	opt.nodes_set			= false;
 	opt.ntasks			= 1;
@@ -501,16 +486,13 @@ env_vars_t env_vars[] = {
   {"SBATCH_ARRAY_INX",     OPT_STRING,     &sbopt.array_inx,   NULL          },
   {"SBATCH_ACCTG_FREQ",    OPT_STRING,     &opt.acctg_freq,    NULL          },
   {"SBATCH_BATCH",         OPT_STRING,     &sbopt.batch_features, NULL       },
-  {"SBATCH_BLRTS_IMAGE",   OPT_STRING,     &opt.blrtsimage,    NULL          },
   {"SBATCH_BURST_BUFFER",  OPT_STRING,     &opt.burst_buffer,  NULL          },
   {"SBATCH_CHECKPOINT",    OPT_STRING,     &sbopt.ckpt_interval_str, NULL    },
   {"SBATCH_CHECKPOINT_DIR",OPT_STRING,     &sbopt.ckpt_dir,    NULL          },
   {"SBATCH_CLUSTERS",      OPT_STRING,     &opt.clusters,      NULL          },
   {"SLURM_CLUSTERS",       OPT_STRING,     &opt.clusters,      NULL          },
-  {"SBATCH_CNLOAD_IMAGE",  OPT_STRING,     &opt.linuximage,    NULL          },
   {"SBATCH_CONSTRAINT",    OPT_STRING,     &opt.constraints,   NULL          },
   {"SBATCH_CLUSTER_CONSTRAINT", OPT_STRING,&opt.c_constraints, NULL          },
-  {"SBATCH_CONN_TYPE",     OPT_CONN_TYPE,  NULL,               NULL          },
   {"SBATCH_CORE_SPEC",     OPT_INT,        &opt.core_spec,     NULL          },
   {"SBATCH_CPU_FREQ_REQ",  OPT_CPU_FREQ,   NULL,               NULL          },
   {"SBATCH_CPUS_PER_GPU",  OPT_INT,        &opt.cpus_per_gpu,  NULL          },
@@ -519,7 +501,6 @@ env_vars_t env_vars[] = {
   {"SBATCH_DISTRIBUTION",  OPT_DISTRIB ,   NULL,               NULL          },
   {"SBATCH_EXCLUSIVE",     OPT_EXCLUSIVE,  NULL,               NULL          },
   {"SBATCH_EXPORT",        OPT_STRING,     &sbopt.export_env,  NULL          },
-  {"SBATCH_GEOMETRY",      OPT_GEOMETRY,   NULL,               NULL          },
   {"SBATCH_GET_USER_ENV",  OPT_GET_USER_ENV, NULL,             NULL          },
   {"SBATCH_GRES_FLAGS",    OPT_GRES_FLAGS, NULL,               NULL          },
   {"SBATCH_GPUS",          OPT_STRING,     &opt.gpus,          NULL          },
@@ -530,23 +511,18 @@ env_vars_t env_vars[] = {
   {"SBATCH_GPUS_PER_TASK", OPT_STRING,     &opt.gpus_per_task, NULL          },
   {"SBATCH_HINT",          OPT_HINT,       NULL,               NULL          },
   {"SLURM_HINT",           OPT_HINT,       NULL,               NULL          },
-  {"SBATCH_IOLOAD_IMAGE",  OPT_STRING,     &opt.ramdiskimage,  NULL          },
   {"SBATCH_JOBID",         OPT_INT,        &opt.jobid,         NULL          },
   {"SBATCH_JOB_NAME",      OPT_STRING,     &opt.job_name,      NULL          },
-  {"SBATCH_LINUX_IMAGE",   OPT_STRING,     &opt.linuximage,    NULL          },
   {"SBATCH_MEM_BIND",      OPT_MEM_BIND,   NULL,               NULL          },
   {"SBATCH_MEM_PER_GPU",   OPT_MEM_PER_GPU, &opt.mem_per_gpu,  NULL          },
-  {"SBATCH_MLOADER_IMAGE", OPT_STRING,     &opt.mloaderimage,  NULL          },
   {"SBATCH_NETWORK",       OPT_STRING,     &opt.network,       NULL          },
   {"SBATCH_NO_REQUEUE",    OPT_NO_REQUEUE, NULL,               NULL          },
-  {"SBATCH_NO_ROTATE",     OPT_BOOL,       &opt.no_rotate,     NULL          },
   {"SBATCH_OPEN_MODE",     OPT_OPEN_MODE,  NULL,               NULL          },
   {"SBATCH_OVERCOMMIT",    OPT_OVERCOMMIT, NULL,               NULL          },
   {"SBATCH_PARTITION",     OPT_STRING,     &opt.partition,     NULL          },
   {"SBATCH_POWER",         OPT_POWER,      NULL,               NULL          },
   {"SBATCH_PROFILE",       OPT_PROFILE,    NULL,               NULL          },
   {"SBATCH_QOS",           OPT_STRING,     &opt.qos,           NULL          },
-  {"SBATCH_RAMDISK_IMAGE", OPT_STRING,     &opt.ramdiskimage,  NULL          },
   {"SBATCH_REQ_SWITCH",    OPT_INT,        &opt.req_switch,    NULL          },
   {"SBATCH_REQUEUE",       OPT_REQUEUE,    NULL,               NULL          },
   {"SBATCH_RESERVATION",   OPT_STRING,     &opt.reservation,   NULL          },
@@ -678,22 +654,6 @@ _process_env_var(env_vars_t *e, const char *val)
 			      e->var, val);
 		}
 		break;
-
-	case OPT_CONN_TYPE:
-		verify_conn_type(val, opt.conn_type);
-		break;
-
-	case OPT_NO_ROTATE:
-		opt.no_rotate = true;
-		break;
-
-	case OPT_GEOMETRY:
-		if (verify_geometry(val, opt.geometry)) {
-			error("\"%s=%s\" -- invalid geometry, ignoring...",
-			      e->var, val);
-		}
-		break;
-
 	case OPT_GRES_FLAGS:
 		if (!xstrcasecmp(val, "enforce-binding")) {
 			opt.job_flags |= GRES_ENFORCE_BIND;
@@ -815,7 +775,6 @@ static struct option long_options[] = {
 	{"workdir",       required_argument, 0, 'D'},
 	{"error",         required_argument, 0, 'e'},
 	{"nodefile",      required_argument, 0, 'F'},
-	{"geometry",      required_argument, 0, 'g'},
 	{"gpus",          required_argument, 0, 'G'},
 	{"help",          no_argument,       0, 'h'},
 	{"hold",          no_argument,       0, 'H'},
@@ -837,7 +796,6 @@ static struct option long_options[] = {
 	{"partition",     required_argument, 0, 'p'},
 	{"qos",		  required_argument, 0, 'q'},
 	{"quiet",         no_argument,       0, 'Q'},
-	{"no-rotate",     no_argument,       0, 'R'},
 	{"share",         no_argument,       0, 's'},
 	{"core-spec",     required_argument, 0, 'S'},
 	{"time",          required_argument, 0, 't'},
@@ -852,12 +810,9 @@ static struct option long_options[] = {
 	{"bb",            required_argument, 0, LONG_OPT_BURST_BUFFER_SPEC},
 	{"bbf",           required_argument, 0, LONG_OPT_BURST_BUFFER_FILE},
 	{"begin",         required_argument, 0, LONG_OPT_BEGIN},
-	{"blrts-image",   required_argument, 0, LONG_OPT_BLRTS_IMAGE},
 	{"checkpoint",    required_argument, 0, LONG_OPT_CHECKPOINT},
 	{"checkpoint-dir",required_argument, 0, LONG_OPT_CHECKPOINT_DIR},
-	{"cnload-image",  required_argument, 0, LONG_OPT_LINUX_IMAGE},
 	{"comment",       required_argument, 0, LONG_OPT_COMMENT},
-	{"conn-type",     required_argument, 0, LONG_OPT_CONNTYPE},
 	{"contiguous",    no_argument,       0, LONG_OPT_CONT},
 	{"cores-per-socket", required_argument, 0, LONG_OPT_CORESPERSOCKET},
 	{"cpu-freq",         required_argument, 0, LONG_OPT_CPU_FREQ},
@@ -878,9 +833,7 @@ static struct option long_options[] = {
 	{"gpus-per-task", required_argument, 0, LONG_OPT_GPUS_PER_TASK},
 	{"hint",          required_argument, 0, LONG_OPT_HINT},
 	{"ignore-pbs",    no_argument,       0, LONG_OPT_IGNORE_PBS},
-	{"ioload-image",  required_argument, 0, LONG_OPT_RAMDISK_IMAGE},
 	{"jobid",         required_argument, 0, LONG_OPT_JOBID},
-	{"linux-image",   required_argument, 0, LONG_OPT_LINUX_IMAGE},
 	{"mail-type",     required_argument, 0, LONG_OPT_MAIL_TYPE},
 	{"mail-user",     required_argument, 0, LONG_OPT_MAIL_USER},
 	{"mcs-label",     required_argument, 0, LONG_OPT_MCS_LABEL},
@@ -893,7 +846,6 @@ static struct option long_options[] = {
 	{"mincpus",       required_argument, 0, LONG_OPT_MINCPU},
 	{"minsockets",    required_argument, 0, LONG_OPT_MINSOCKETS},
 	{"minthreads",    required_argument, 0, LONG_OPT_MINTHREADS},
-	{"mloader-image", required_argument, 0, LONG_OPT_MLOADER_IMAGE},
 	{"network",       required_argument, 0, LONG_OPT_NETWORK},
 	{"nice",          optional_argument, 0, LONG_OPT_NICE},
 	{"no-requeue",    no_argument,       0, LONG_OPT_NO_REQUEUE},
@@ -906,7 +858,6 @@ static struct option long_options[] = {
 	{"propagate",     optional_argument, 0, LONG_OPT_PROPAGATE},
 	{"profile",       required_argument, 0, LONG_OPT_PROFILE},
 	{"priority",      required_argument, 0, LONG_OPT_PRIORITY},
-	{"ramdisk-image", required_argument, 0, LONG_OPT_RAMDISK_IMAGE},
 	{"reboot",        no_argument,       0, LONG_OPT_REBOOT},
 	{"requeue",       no_argument,       0, LONG_OPT_REQUEUE},
 	{"reservation",   required_argument, 0, LONG_OPT_RESERVATION},
@@ -932,7 +883,7 @@ static struct option long_options[] = {
 };
 
 static char *opt_string =
-	"+ba:A:B:c:C:d:D:e:F:g:G:hHi:IJ:kL:m:M:n:N:o:Op:P:q:QRsS:t:uU:vVw:Wx:";
+	"+ba:A:B:c:C:d:D:e:F:G:hHi:IJ:kL:m:M:n:N:o:Op:P:q:QsS:t:uU:vVw:Wx:";
 char *pos_delimit;
 
 
@@ -1506,12 +1457,6 @@ static void _set_options(int argc, char **argv)
 				exit(error_exit);
 			}
 			break;
-		case 'g':
-			if (!optarg)
-				break;	/* Fix for Coverity false positive */
-			if (verify_geometry(optarg, opt.geometry))
-				exit(error_exit);
-			break;
 		case 'G':
 			xfree(opt.gpus);
 			opt.gpus = xstrdup(optarg);
@@ -1605,9 +1550,6 @@ static void _set_options(int argc, char **argv)
 			break;
 		case 'Q':
 			/* handled in process_options_first_pass() */
-			break;
-		case 'R':
-			opt.no_rotate = true;
 			break;
 		case 's':
 			opt.shared = 1;
@@ -1840,11 +1782,6 @@ static void _set_options(int argc, char **argv)
 				exit(error_exit);
 			}
 			break;
-		case LONG_OPT_CONNTYPE:
-			if (!optarg)
-				break;	/* Fix for Coverity false positive */
-			verify_conn_type(optarg, opt.conn_type);
-			break;
 		case LONG_OPT_BEGIN:
 			if (!optarg)
 				break;	/* Fix for Coverity false positive */
@@ -2021,30 +1958,7 @@ static void _set_options(int argc, char **argv)
 			xfree(sbopt.batch_features);
 			sbopt.batch_features = xstrdup(optarg);
 			break;
-		case LONG_OPT_BLRTS_IMAGE:
-			xfree(opt.blrtsimage);
-			opt.blrtsimage = xstrdup(optarg);
-			break;
-		case LONG_OPT_LINUX_IMAGE:
-			xfree(opt.linuximage);
-			opt.linuximage = xstrdup(optarg);
-			break;
-		case LONG_OPT_MLOADER_IMAGE:
-			xfree(opt.mloaderimage);
-			opt.mloaderimage = xstrdup(optarg);
-			break;
-		case LONG_OPT_RAMDISK_IMAGE:
-			xfree(opt.ramdiskimage);
-			opt.ramdiskimage = xstrdup(optarg);
-			break;
 		case LONG_OPT_REBOOT:
-#if defined HAVE_BG
-			info("WARNING: If your job is smaller than the block "
-			     "it is going to run on and other jobs are "
-			     "running on it the --reboot option will not be "
-			     "honored.  If this is the case, contact your "
-			     "admin to reboot the block for you.");
-#endif
 			opt.reboot = true;
 			break;
 		case LONG_OPT_WRAP:
@@ -2602,12 +2516,6 @@ static void _parse_pbs_nodes_opts(char *node_opts)
 	if (hostlist_count(hl) > 0) {
 		xfree(opt.nodelist);
 		opt.nodelist = hostlist_ranged_string_xmalloc(hl);
-#ifdef HAVE_BG
-		info("\tThe nodelist option should only be used if\n"
-		     "\tthe block you are asking for can be created.\n"
-		     "\tPlease consult smap before using this option\n"
-		     "\tor your job may be stuck with no way to run.");
-#endif
 	}
 
 	hostlist_destroy(hl);
@@ -2897,7 +2805,6 @@ static bool _opt_verify(void)
 {
 	bool verified = true;
 	char *dist = NULL, *dist_lllp = NULL;
-	uint32_t cluster_flags = slurmdb_setup_cluster_flags();
 	hostlist_t hl = NULL;
 	int hl_cnt = 0;
 
@@ -2968,12 +2875,6 @@ static bool _opt_verify(void)
 		opt.nodes_set = true;
 	}
 
-	if (cluster_flags & CLUSTER_FLAG_BGQ)
-		bg_figure_nodes_tasks(&opt.min_nodes, &opt.max_nodes,
-				      &opt.ntasks_per_node, &opt.ntasks_set,
-				      &opt.ntasks, opt.nodes_set, opt.nodes_set,
-				      opt.overcommit, 0);
-
 	if ((opt.ntasks_per_node > 0) && (!opt.ntasks_set) &&
 	    ((opt.max_nodes == 0) || (opt.min_nodes == opt.max_nodes))) {
 		opt.ntasks = opt.min_nodes * opt.ntasks_per_node;
@@ -3004,21 +2905,6 @@ static bool _opt_verify(void)
 	    (opt.max_nodes && (opt.min_nodes > opt.max_nodes))) {
 		error("invalid number of nodes (-N %d-%d)",
 		      opt.min_nodes, opt.max_nodes);
-		verified = false;
-	}
-
-	if (opt.linuximage && strchr(opt.linuximage, ' ')) {
-		error("invalid CnloadImage given '%s'", opt.linuximage);
-		verified = false;
-	}
-
-	if (opt.mloaderimage && strchr(opt.mloaderimage, ' ')) {
-		error("invalid MloaderImage given '%s'", opt.mloaderimage);
-		verified = false;
-	}
-
-	if (opt.ramdiskimage && strchr(opt.ramdiskimage, ' ')) {
-		error("invalid IoloadImage given '%s'", opt.ramdiskimage);
 		verified = false;
 	}
 
@@ -3231,17 +3117,6 @@ static bool _opt_verify(void)
 		} else {
 			pack_env.mem_bind_verbose = xstrdup("quiet");
 		}
-	}
-
-	if (opt.nodelist && (!sbopt.test_only)) {
-#ifdef HAVE_BG
-		info("\tThe nodelist option should only be used if\n"
-		     "\tthe block you are asking for can be created.\n"
-		     "\tIt should also include all the midplanes you\n"
-		     "\twant to use, partial lists will not work correctly.\n"
-		     "\tPlease consult smap before using this option\n"
-		     "\tor your job may be stuck with no way to run.");
-#endif
 	}
 
 	cpu_freq_set_env("SLURM_CPU_FREQ_REQ",
@@ -3491,24 +3366,9 @@ static void _opt_list(void)
 	str = print_constraints();
 	info("constraints       : %s", str);
 	xfree(str);
-	if (opt.conn_type[0] != NO_VAL16) {
-		str = conn_type_string_full(opt.conn_type);
-		info("conn_type      : %s", str);
-		xfree(str);
-	}
-	str = print_geometry(opt.geometry);
-	info("geometry          : %s", str);
-	xfree(str);
 	info("reboot            : %s", opt.reboot ? "no" : "yes");
-	info("rotate            : %s", opt.no_rotate ? "yes" : "no");
 	info("network           : %s", opt.network);
 
-	if (opt.linuximage)
-		info("CnloadImage       : %s", opt.linuximage);
-	if (opt.mloaderimage)
-		info("MloaderImage      : %s", opt.mloaderimage);
-	if (opt.ramdiskimage)
-		info("IoloadImage       : %s", opt.ramdiskimage);
 	if (opt.begin) {
 		char time_str[32];
 		slurm_make_time_str(&opt.begin, time_str, sizeof(time_str));
@@ -3579,11 +3439,6 @@ static void _usage(void)
 "              [--jobid=id] [--verbose] [--gid=group] [--uid=user]\n"
 "              [--contiguous] [--mincpus=n] [--mem=MB] [--tmp=MB] [-C list]\n"
 "              [--account=name] [--dependency=type:jobid] [--comment=name]\n"
-#ifdef HAVE_BG		/* Blue gene specific options */
-"              [--geometry=AxXxYxZ] [--conn-type=type] [--no-rotate]\n"
-"              [--cnload-image=path]\n"
-"              [--mloader-image=path] [--ioload-image=path]\n"
-#endif
 "              [--mail-type=type] [--mail-user=user][--nice[=value]] [--wait]\n"
 "              [--requeue] [--no-requeue] [--ntasks-per-node=n] [--propagate]\n"
 "              [--nodefile=file] [--nodelist=hosts] [--exclude=hosts]\n"
@@ -3754,23 +3609,6 @@ static void _help(void)
 "Cray related options:\n"
 "      --network=type          Use network performance counters\n"
 "                              (system, network, or processor)\n"
-"\n"
-#endif
-#ifdef HAVE_BG				/* Blue gene specific options */
-"Blue Gene related options:\n"
-"  -g, --geometry=AxXxYxZ      Midplane geometry constraints of the job,\n"
-"                              sub-block allocations can not be allocated\n"
-"                              with the geometry option\n"
-"  -R, --no-rotate             disable geometry rotation\n"
-"      --conn-type=type        constraint on type of connection, MESH or TORUS\n"
-"                              if not set, then tries to fit TORUS else MESH\n"
-"                              If wanting to run in HTC mode (only for 1\n"
-"                              midplane and below).  You can use HTC_S for\n"
-"                              SMP, HTC_D for Dual, HTC_V for\n"
-"                              virtual node mode, and HTC_L for Linux mode.\n"
-"      --cnload-image=path     path to compute node image for bluegene block.  Default if not set\n"
-"      --mloader-image=path    path to mloader image for bluegene block.  Default if not set\n"
-"      --ioload-image=path     path to ioload image for bluegene block.  Default if not set\n"
 "\n"
 #endif
 "Help options:\n"

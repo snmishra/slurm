@@ -11,7 +11,6 @@ generated_html = \
 	authplugins.html \
 	bb_plugins.html \
 	big_sys.html \
-	bluegene.html \
 	burst_buffer.html \
 	cgroups.html \
 	checkpoint_blcr.html \
@@ -29,6 +28,7 @@ generated_html = \
 	dist_plane.html \
 	documentation.html \
 	download.html \
+	elasticsearch.html \
 	elastic_computing.html \
 	ext_sensorsplugins.html \
 	faq.html \

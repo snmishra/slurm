@@ -324,6 +324,7 @@ s_p_options_t slurm_conf_options[] = {
 	{"ReconfigFlags", S_P_STRING},
 	{"RequeueExit", S_P_STRING},
 	{"RequeueExitHold", S_P_STRING},
+	{"ResumeFailProgram", S_P_STRING},
 	{"ResumeProgram", S_P_STRING},
 	{"ResumeRate", S_P_UINT16},
 	{"ResumeTimeout", S_P_UINT16},
@@ -354,6 +355,7 @@ s_p_options_t slurm_conf_options[] = {
 	{"SlurmctldPrimaryOnProg", S_P_STRING},
 	{"SlurmctldSyslogDebug", S_P_STRING},
 	{"SlurmctldTimeout", S_P_UINT16},
+	{"SlurmctldParameters", S_P_STRING},
 	{"SlurmdDebug", S_P_STRING},
 	{"SlurmdLogFile", S_P_STRING},
 	{"SlurmdParameters", S_P_STRING},
@@ -390,6 +392,7 @@ s_p_options_t slurm_conf_options[] = {
 	{"UsePAM", S_P_BOOLEAN},
 	{"VSizeFactor", S_P_UINT16},
 	{"WaitTime", S_P_UINT16},
+	{"X11Parameters", S_P_STRING},
 
 	{"DownNodes", S_P_ARRAY, _parse_downnodes, _destroy_downnodes},
 	{"FrontendName", S_P_ARRAY, _parse_frontend, destroy_frontend},
@@ -1417,7 +1420,7 @@ static int _parse_partitionname(void **dest, slurm_parser_enum_t type,
 		if (s_p_get_uint64(&def_mem_per_gpu, "DefMemPerGPU", tbl) ||
 		    s_p_get_uint64(&def_mem_per_gpu, "DefMemPerGPU", dflt)) {
 			job_defaults = xmalloc(sizeof(job_defaults_t));
-			job_defaults->type  = JOB_DEF_CPU_PER_GPU;
+			job_defaults->type  = JOB_DEF_MEM_PER_GPU;
 			job_defaults->value = def_mem_per_gpu;
 			if (!p->job_defaults_list) {
 				p->job_defaults_list =
@@ -2763,6 +2766,7 @@ free_slurm_conf (slurm_ctl_conf_t *ctl_conf_ptr, bool purge_node_hash)
 	xfree (ctl_conf_ptr->reboot_program);
 	xfree (ctl_conf_ptr->requeue_exit);
 	xfree (ctl_conf_ptr->requeue_exit_hold);
+	xfree (ctl_conf_ptr->resume_fail_program);
 	xfree (ctl_conf_ptr->resume_program);
 	xfree (ctl_conf_ptr->resv_epilog);
 	xfree (ctl_conf_ptr->resv_prolog);
@@ -2783,6 +2787,7 @@ free_slurm_conf (slurm_ctl_conf_t *ctl_conf_ptr, bool purge_node_hash)
 	xfree (ctl_conf_ptr->slurmctld_primary_off_prog);
 	xfree (ctl_conf_ptr->slurmctld_primary_on_prog);
 	xfree (ctl_conf_ptr->slurmd_logfile);
+	xfree (ctl_conf_ptr->slurmctld_params);
 	xfree (ctl_conf_ptr->slurmd_params);
 	xfree (ctl_conf_ptr->slurmd_pidfile);
 	xfree (ctl_conf_ptr->slurmd_spooldir);
@@ -2803,6 +2808,7 @@ free_slurm_conf (slurm_ctl_conf_t *ctl_conf_ptr, bool purge_node_hash)
 	xfree (ctl_conf_ptr->topology_plugin);
 	xfree (ctl_conf_ptr->unkillable_program);
 	xfree (ctl_conf_ptr->version);
+	xfree (ctl_conf_ptr->x11_params);
 
 	if (purge_node_hash)
 		_free_name_hashtbl();
@@ -2933,6 +2939,7 @@ init_slurm_conf (slurm_ctl_conf_t *ctl_conf_ptr)
 	xfree(ctl_conf_ptr->requeue_exit);
 	xfree(ctl_conf_ptr->requeue_exit_hold);
 	ctl_conf_ptr->resume_timeout		= 0;
+	xfree (ctl_conf_ptr->resume_fail_program);
 	xfree (ctl_conf_ptr->resume_program);
 	ctl_conf_ptr->resume_rate		= NO_VAL16;
 	xfree (ctl_conf_ptr->resv_epilog);
@@ -2964,6 +2971,7 @@ init_slurm_conf (slurm_ctl_conf_t *ctl_conf_ptr)
 	xfree (ctl_conf_ptr->slurmctld_primary_off_prog);
 	xfree (ctl_conf_ptr->slurmctld_primary_on_prog);
 	ctl_conf_ptr->slurmctld_timeout		= NO_VAL16;
+	xfree (ctl_conf_ptr->slurmctld_params);
 	ctl_conf_ptr->slurmd_debug		= NO_VAL16;
 	xfree (ctl_conf_ptr->slurmd_logfile);
 	xfree (ctl_conf_ptr->slurmd_params);
@@ -2997,6 +3005,7 @@ init_slurm_conf (slurm_ctl_conf_t *ctl_conf_ptr)
 	ctl_conf_ptr->use_spec_resources	= 0;
 	ctl_conf_ptr->vsize_factor              = 0;
 	ctl_conf_ptr->wait_time			= NO_VAL16;
+	xfree (ctl_conf_ptr->x11_params);
 	ctl_conf_ptr->prolog_epilog_timeout = NO_VAL16;
 
 	_free_name_hashtbl();
@@ -3379,10 +3388,13 @@ _validate_and_set_defaults(slurm_ctl_conf_t *conf, s_p_hashtbl_t *hashtbl)
 	 * the cluster name is lower case since sacctmgr makes sure
 	 * this is the case as well.
 	 */
-	if (conf->cluster_name) {
+	if (conf->cluster_name && *conf->cluster_name) {
 		for (i = 0; conf->cluster_name[i] != '\0'; i++)
 			conf->cluster_name[i] =
 				(char)tolower((int)conf->cluster_name[i]);
+	} else {
+		error("ClusterName needs to be specified");
+		return SLURM_ERROR;
 	}
 
 	if (!s_p_get_uint16(&conf->complete_wait, "CompleteWait", hashtbl))
@@ -3779,8 +3791,14 @@ _validate_and_set_defaults(slurm_ctl_conf_t *conf, s_p_hashtbl_t *hashtbl)
 
 	(void) s_p_get_string(&conf->mail_domain, "MailDomain", hashtbl);
 
-	if (!s_p_get_string(&conf->mail_prog, "MailProg", hashtbl))
-		conf->mail_prog = xstrdup(DEFAULT_MAIL_PROG);
+	if (!s_p_get_string(&conf->mail_prog, "MailProg", hashtbl)) {
+		struct stat stat_buf;
+		if ((stat(DEFAULT_MAIL_PROG,     &stat_buf) == 0) ||
+		    (stat(DEFAULT_MAIL_PROG_ALT, &stat_buf) != 0))
+			conf->mail_prog = xstrdup(DEFAULT_MAIL_PROG);
+		else
+			conf->mail_prog = xstrdup(DEFAULT_MAIL_PROG_ALT);
+	}
 
 	if (!s_p_get_uint32(&conf->max_array_sz, "MaxArraySize", hashtbl))
 		conf->max_array_sz = DEFAULT_MAX_ARRAY_SIZE;
@@ -4123,13 +4141,6 @@ _validate_and_set_defaults(slurm_ctl_conf_t *conf, s_p_hashtbl_t *hashtbl)
 			return SLURM_ERROR;
 		}
 	}
-#ifdef HAVE_BG
-	if ((conf->preempt_mode & PREEMPT_MODE_GANG) ||
-	    (conf->preempt_mode & PREEMPT_MODE_SUSPEND)) {
-		error("PreemptMode incompatible with BlueGene systems");
-		return SLURM_ERROR;
-	}
-#endif
 
 	if (s_p_get_string(&temp_str, "PriorityDecayHalfLife", hashtbl)) {
 		int max_time = time_str2mins(temp_str);
@@ -4389,6 +4400,8 @@ _validate_and_set_defaults(slurm_ctl_conf_t *conf, s_p_hashtbl_t *hashtbl)
 	(void) s_p_get_uint16(&conf->resv_over_run, "ResvOverRun", hashtbl);
 	(void)s_p_get_string(&conf->resv_prolog, "ResvProlog", hashtbl);
 
+	(void)s_p_get_string(&conf->resume_fail_program, "ResumeFailProgram",
+			     hashtbl);
 	(void)s_p_get_string(&conf->resume_program, "ResumeProgram", hashtbl);
 	if (!s_p_get_uint16(&conf->resume_rate, "ResumeRate", hashtbl))
 		conf->resume_rate = DEFAULT_RESUME_RATE;
@@ -4578,6 +4591,9 @@ _validate_and_set_defaults(slurm_ctl_conf_t *conf, s_p_hashtbl_t *hashtbl)
 			    "SlurmctldTimeout", hashtbl))
 		conf->slurmctld_timeout = DEFAULT_SLURMCTLD_TIMEOUT;
 
+	(void) s_p_get_string(&conf->slurmctld_params,
+			      "SlurmctldParameters", hashtbl);
+
 	if (s_p_get_string(&temp_str, "SlurmdDebug", hashtbl)) {
 		conf->slurmd_debug = log_string2num(temp_str);
 		if (conf->slurmd_debug == NO_VAL16) {
@@ -4655,11 +4671,6 @@ _validate_and_set_defaults(slurm_ctl_conf_t *conf, s_p_hashtbl_t *hashtbl)
 		if (long_suspend_time < -1) {
 			error("SuspendTime value (%ld) is less than -1",
 			      long_suspend_time);
-		} else if ((long_suspend_time > -1) &&
-			   (!xstrcmp(conf->select_type, "select/bluegene"))) {
-			error("SuspendTime (power save mode) incompatible with "
-			      "select/bluegene");
-			return SLURM_ERROR;
 		} else
 			conf->suspend_time = long_suspend_time + 1;
 	} else {
@@ -4796,6 +4807,8 @@ _validate_and_set_defaults(slurm_ctl_conf_t *conf, s_p_hashtbl_t *hashtbl)
 	if (!s_p_get_uint16(&conf->wait_time, "WaitTime", hashtbl))
 		conf->wait_time = DEFAULT_WAIT_TIME;
 
+	(void) s_p_get_string(&conf->x11_params, "X11Parameters", hashtbl);
+
 	(void) s_p_get_string(&conf->topology_param, "TopologyParam", hashtbl);
 	if (conf->topology_param) {
 		/* Move legacy settings over to new spot */
@@ -4814,13 +4827,6 @@ _validate_and_set_defaults(slurm_ctl_conf_t *conf, s_p_hashtbl_t *hashtbl)
 
 	if (!s_p_get_string(&conf->topology_plugin, "TopologyPlugin", hashtbl))
 		conf->topology_plugin = xstrdup(DEFAULT_TOPOLOGY_PLUGIN);
-#ifdef HAVE_BG
-	if (xstrcmp(conf->topology_plugin, "topology/none")) {
-		error("On IBM BlueGene systems TopologyPlugin=topology/none "
-		      "is required");
-		return SLURM_ERROR;
-	}
-#endif
 
 	if (s_p_get_uint16(&conf->tree_width, "TreeWidth", hashtbl)) {
 		if (conf->tree_width == 0) {
@@ -4845,12 +4851,6 @@ _validate_and_set_defaults(slurm_ctl_conf_t *conf, s_p_hashtbl_t *hashtbl)
 
 	(void) s_p_get_uint16(&conf->vsize_factor, "VSizeFactor", hashtbl);
 
-#ifdef HAVE_BG
-	if (conf->node_prefix == NULL) {
-		error("No valid node name prefix identified");
-		return SLURM_ERROR;
-	}
-#endif
 	/* The default value is true meaning the memory
 	 * is going to be enforced by slurmstepd and/or
 	 * slurmd.

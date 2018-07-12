@@ -206,6 +206,8 @@ uint16_t _allocate_cores(struct job_record *job_ptr, bitstr_t *core_map,
  * IN/OUT cpu_alloc_size - minimum allocation size, in CPUs
  * IN entire_sockets_only - if true, allocate cores only on sockets that
  *                        - have no other allocated cores.
+ * RET - Count of CPUs that can be used on this node. Equal to the count of CPUs
+ *       represented by bits set in core_map, less any specialized threads/CPUS.
  */
 static uint16_t _allocate_sc(struct job_record *job_ptr, bitstr_t *core_map,
 			     bitstr_t *part_core_map, const uint32_t node_i,
@@ -3858,7 +3860,23 @@ alloc_job:
 		for (i = 0; i < job_res->nhosts; i++) {
 			job_res->memory_allocated[i] = save_mem;
 		}
+	} else {	/* --mem=0, allocate job all memory on node */
+		uint64_t avail_mem, lowest_mem = 0;
+		first = bit_ffs(job_res->node_bitmap);
+		if (first != -1)
+			last  = bit_fls(job_res->node_bitmap);
+		else
+			last = first - 1;
+		for (i = first, j = 0; i <= last; i++) {
+			if (!bit_test(job_res->node_bitmap, i))
+				continue;
+			avail_mem = select_node_record[i].real_memory -
+				    select_node_record[i].mem_spec_limit;
+			if ((j == 0) || (lowest_mem > avail_mem))
+				lowest_mem = avail_mem;
+			job_res->memory_allocated[j++] = avail_mem;
+		}
+		details_ptr->pn_min_memory = lowest_mem;
 	}
-
 	return error_code;
 }

@@ -490,6 +490,10 @@ execution.
 \fBafterany:job_id[:jobid...]\fR
 This job can begin execution after the specified jobs have terminated.
 .TP
+\fBafterburstbuffer:job_id[:jobid...]\fR
+This job can begin execution after the specified jobs have terminated and
+any associated burst buffer stage out operations have completed.
+.TP
 \fBaftercorr:job_id[:jobid...]\fR
 A task of this job array can begin execution after the corresponding task ID
 in the specified job has completed successfully (ran to completion with an
@@ -651,7 +655,7 @@ may be the group name or the numerical group ID.
 .\ .RE
 .\ 
 .\ .TP
-.\ \fB\-\-gpu\-freq\fR=[<\fItype\fR]=\fIvalue\fR>[,<\fItype\fR=\fIvalue\fR>]
+.\ \fB\-\-gpu\-freq\fR=[<\fItype\fR]=\fIvalue\fR>[:<\fItype\fR=\fIvalue\fR>]
 .\ Request that GPUs allocated to the job are configured with specific voltage
 .\ and/or frequency values.
 .\ This option can be used to independently configure the GPU and its memory
@@ -663,7 +667,7 @@ may be the group name or the numerical group ID.
 .\ a numeric value (megahertz or volts).
 .\ If the specified numeric value is not possible, a value as close as
 .\ possible will be used. See below for definition of the values.
-.\ Examples of use include "\-\-gpu\-freq\fR=medium,memory=high,voltage=high" and
+.\ Examples of use include "\-\-gpu\-freq\fR=medium:memory=high:voltage=high" and
 .\ \-\-gpu\-freq\fR=450".
 .\ 
 .\ Supported \fIvalue\fR definitions:
@@ -701,6 +705,7 @@ may be the group name or the numerical group ID.
 .\ For example "\-\-gpus\-per\-socket=volta:3".
 .\ Multiple options can be requested in a comma separated list, for example:
 .\ "\-\-gpus\-per\-socket=volta:3,kepler:1".
+.\ Requires job to specify a sockets per node count ( \-\-sockets\-per\-node).
 .\ See also the \fB\-\-gpus\fR, \fB\-\-gpus\-per\-node\fR and
 .\ \fB\-\-gpus\-per\-task\fR options.
 .\ 
@@ -713,6 +718,7 @@ may be the group name or the numerical group ID.
 .\ For example "\-\-gpus\-per\-task=volta:1".
 .\ Multiple options can be requested in a comma separated list, for example:
 .\ "\-\-gpus\-per\-task=volta:3,kepler:1".
+.\ Requires job to specify a task count (\-\-nodes).
 .\ See also the \fB\-\-gpus\fR, \fB\-\-gpus\-per\-socket\fR and
 .\ \fB\-\-gpus\-per\-node\fR options.
 .\ 
@@ -1467,17 +1473,19 @@ Network (InfiniBand) data is collected.
 .RE
 
 .TP
-\fB\-\-propagate\fR[=\fIrlimitfR]
+\fB\-\-propagate\fR[=\fIrlimit[,rlimit...]\fR]
 Allows users to specify which of the modifiable (soft) resource limits
-to propagate to the compute nodes and apply to their jobs.  If
-\fIrlimits\fR is not specified, then all resource limits will be
-propagated.
+to propagate to the compute nodes and apply to their jobs. If no
+\fIrlimit\fR is specified, then all resource limits will be propagated.
 The following rlimit names are supported by Slurm (although some
 options may not be supported on some systems):
 .RS
 .TP 10
 \fBALL\fR
-All limits listed below
+All limits listed below (default)
+.TP
+\fBNONE\fR
+No limits listed below
 .TP
 \fBAS\fR
 The maximum address space for a process
@@ -1843,9 +1851,6 @@ Same as \fB\-a, \-\-array\fR
 \fBSBATCH_BATCH\fR
 Same as \fB\-\-batch\fR
 .TP
-\fBSBATCH_BLRTS_IMAGE\fR
-Same as \fB\-\-blrts\-image\fR
-.TP
 \fBSBATCH_CHECKPOINT\fR
 Same as \fB\-\-checkpoint\fR
 .TP
@@ -1854,12 +1859,6 @@ Same as \fB\-\-checkpoint\-dir\fR
 .TP
 \fBSBATCH_CLUSTERS\fR or \fBSLURM_CLUSTERS\fR
 Same as \fB\-\-clusters\fR
-.TP
-\fBSBATCH_CNLOAD_IMAGE\fR
-Same as \fB\-\-cnload\-image\fR
-.TP
-\fBSBATCH_CONN_TYPE\fR
-Same as \fB\-\-conn\-type\fR
 .TP
 \fBSBATCH_CONSTRAINT\fR
 Same as \fB\-C\fR, \fB\-\-constraint\fR
@@ -1884,9 +1883,6 @@ Same as \fB\-\-exclusive\fR
 .TP
 \fBSBATCH_EXPORT\fR
 Same as \fB\-\-export\fR
-.TP
-\fBSBATCH_GEOMETRY\fR
-Same as \fB\-g, \-\-geometry\fR
 .TP
 \fBSBATCH_GET_USER_ENV\fR
 Same as \fB\-\-get\-user\-env\fR
@@ -1915,17 +1911,11 @@ Same as \fB\-\-hint\fR
 \fBSBATCH_IGNORE_PBS\fR
 Same as \fB\-\-ignore\-pbs\fR
 .TP
-\fBSBATCH_IOLOAD_IMAGE\fR
-Same as \fB\-\-ioload\-image\fR
-.TP
 \fBSBATCH_JOBID\fR
 Same as \fB\-\-jobid\fR
 .TP
 \fBSBATCH_JOB_NAME\fR
 Same as \fB\-J, \-\-job\-name\fR
-.TP
-\fBSBATCH_LINUX_IMAGE\fR
-Same as \fB\-\-linux\-image\fR
 .TP
 \fBSBATCH_MEM_BIND\fR
 Same as \fB\-\-mem\-bind\fR
@@ -1933,17 +1923,11 @@ Same as \fB\-\-mem\-bind\fR
 .\ \fBSBATCH_MEM_PER_GPU\fR
 .\ Same as \fB\-\-mem\-per\-gpu\fR
 .TP
-\fBSBATCH_MLOADER_IMAGE\fR
-Same as \fB\-\-mloader\-image\fR
-.TP
 \fBSBATCH_NETWORK\fR
 Same as \fB\-\-network\fR
 .TP
 \fBSBATCH_NO_REQUEUE\fR
 Same as \fB\-\-no\-requeue\fR
-.TP
-\fBSBATCH_NO_ROTATE\fR
-Same as \fB\-R, \-\-no\-rotate\fR
 .TP
 \fBSBATCH_OPEN_MODE\fR
 Same as \fB\-\-open\-mode\fR
@@ -1962,9 +1946,6 @@ Same as \fB\-\-profile\fR
 .TP
 \fBSBATCH_QOS\fR
 Same as \fB\-\-qos\fR
-.TP
-\fBSBATCH_RAMDISK_IMAGE\fR
-Same as \fB\-\-ramdisk\-image\fR
 .TP
 \fBSBATCH_RESERVATION\fR
 Same as \fB\-\-reservation\fR

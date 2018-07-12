@@ -580,9 +580,7 @@ static void _handle_node_reg_resp(slurm_msg_t *resp_msg)
 
 
 	if (resp) {
-		assoc_mgr_lock_t locks = {
-			NO_LOCK, NO_LOCK, NO_LOCK, NO_LOCK,
-			WRITE_LOCK, NO_LOCK, NO_LOCK };
+		assoc_mgr_lock_t locks = { .tres = WRITE_LOCK };
 		/*
 		 * We don't care about the assoc/qos locks
 		 * assoc_mgr_post_tres_list is requesting as those lists
@@ -1012,6 +1010,7 @@ _read_config(void)
 	_free_and_set(conf->task_prolog, xstrdup(cf->task_prolog));
 	_free_and_set(conf->task_epilog, xstrdup(cf->task_epilog));
 	_free_and_set(conf->pubkey,   path_pubkey);
+	_free_and_set(conf->x11_params, xstrdup(cf->x11_params));
 
 	conf->debug_flags = cf->debug_flags;
 	conf->syslog_debug = cf->slurmd_syslog_debug;
@@ -1260,6 +1259,7 @@ _destroy_conf(void)
 		xfree(conf->task_prolog);
 		xfree(conf->task_epilog);
 		xfree(conf->tmpfs);
+		xfree(conf->x11_params);
 		slurm_mutex_destroy(&conf->config_mutex);
 		FREE_NULL_LIST(conf->starting_steps);
 		slurm_cond_destroy(&conf->starting_steps_cond);
@@ -1677,6 +1677,7 @@ cleanup:
 static int
 _slurmd_fini(void)
 {
+	assoc_mgr_fini(false);
 	node_features_g_fini();
 	core_spec_g_fini();
 	switch_g_node_fini();

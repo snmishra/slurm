@@ -62,7 +62,6 @@ typedef struct {
 	int node_cnt;
 	char *nodes;
 	int pos;
-	bool small_block;
 	List step_list;
 	hostlist_t task_hl;
 	char *task_hl_str;
@@ -187,6 +186,7 @@ enum {
 	SORTID_THREAD_SPEC,
 /* 	SORTID_THREADS_MAX, */
 /* 	SORTID_THREADS_MIN, */
+	SORTID_TIME_ACCRUE,
 	SORTID_TIME_ELIGIBLE,
 	SORTID_TIME_END,
 	SORTID_TIMELIMIT,
@@ -270,6 +270,8 @@ static display_data_t display_data_job[] = {
 	{G_TYPE_STRING, SORTID_TIME_SUBMIT, "Time Submit", false,
 	 EDIT_NONE, refresh_job,
 	 create_model_job, admin_edit_job},
+	{G_TYPE_STRING, SORTID_TIME_ACCRUE, "Time Accrue", false,
+	 EDIT_NONE, refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_STRING, SORTID_TIME_ELIGIBLE, "Time Eligible", false,
 	 EDIT_TEXTBOX, refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_STRING, SORTID_TIME_START, "Time Start", false,
@@ -368,8 +370,9 @@ static display_data_t display_data_job[] = {
 	 false, EDIT_NONE, refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_STRING, SORTID_FED_VIABLE_SIBS, "FedViableSiblings",
 	 false, EDIT_NONE, refresh_job, create_model_job, admin_edit_job},
+	/* "gres" replaced by "tres_per_node" in v18.08 */
 	{G_TYPE_STRING, SORTID_GRES, "Gres",
-	 false, EDIT_TEXTBOX, refresh_job, create_model_job, admin_edit_job},
+	 false, EDIT_NONE, refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_STRING, SORTID_LAST_SCHED_EVAL, "Last Sched Eval",
 	 false, EDIT_NONE, refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_STRING, SORTID_LICENSES, "Licenses",
@@ -393,9 +396,9 @@ static display_data_t display_data_job[] = {
 	{G_TYPE_POINTER, SORTID_NODE_INX, NULL, false, EDIT_NONE,
 	 refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_STRING, SORTID_CPUS_PER_TRES, "CPUs per TRES",  false,
-	 EDIT_NONE, refresh_job, create_model_job, admin_edit_job},
+	 EDIT_TEXTBOX, refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_STRING, SORTID_MEM_PER_TRES, "Mem per TRES", false,
-	 EDIT_NONE, refresh_job, create_model_job, admin_edit_job},
+	 EDIT_TEXTBOX, refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_STRING, SORTID_TRES_ALLOC, "TRES Alloc", false,
 	 EDIT_NONE, refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_STRING, SORTID_TRES_BIND, "TRES Bind", false,
@@ -403,13 +406,13 @@ static display_data_t display_data_job[] = {
 	{G_TYPE_STRING, SORTID_TRES_FREQ, "TRES Freq", false,
 	 EDIT_NONE, refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_STRING, SORTID_TRES_PER_JOB, "TRES Per Job", false,
-	 EDIT_NONE, refresh_job, create_model_job, admin_edit_job},
+	 EDIT_TEXTBOX, refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_STRING, SORTID_TRES_PER_NODE, "TRES Per Node", false,
-	 EDIT_NONE, refresh_job, create_model_job, admin_edit_job},
+	 EDIT_TEXTBOX, refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_STRING, SORTID_TRES_PER_SOCKET, "TRES Per Socket", false,
-	 EDIT_NONE, refresh_job, create_model_job, admin_edit_job},
+	 EDIT_TEXTBOX, refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_STRING, SORTID_TRES_PER_TASK, "TRES Per Task", false,
-	 EDIT_NONE, refresh_job, create_model_job, admin_edit_job},
+	 EDIT_TEXTBOX, refresh_job, create_model_job, admin_edit_job},
 	{G_TYPE_INT, SORTID_UPDATED, NULL, false, EDIT_NONE, refresh_job,
 	 create_model_job, admin_edit_job},
 	{G_TYPE_NONE, -1, NULL, false, EDIT_NONE}
@@ -951,9 +954,29 @@ static const char *_set_job_msg(job_desc_msg_t *job_msg, const char *new_text,
 		job_msg->features = xstrdup(new_text);
 		type = "features";
 		break;
-	case SORTID_GRES:
-		job_msg->gres = xstrdup(new_text);
-		type = "gres";
+	case SORTID_CPUS_PER_TRES:
+		job_msg->cpus_per_tres = xstrdup(new_text);
+		type = "cpus_per_tres";
+		break;
+	case SORTID_MEM_PER_TRES:
+		job_msg->mem_per_tres = xstrdup(new_text);
+		type = "mem_per_tres";
+		break;
+	case SORTID_TRES_PER_JOB:
+		job_msg->tres_per_job = xstrdup(new_text);
+		type = "tres_per_job";
+		break;
+	case SORTID_TRES_PER_NODE:
+		job_msg->tres_per_node = xstrdup(new_text);
+		type = "tres_per_node";
+		break;
+	case SORTID_TRES_PER_SOCKET:
+		job_msg->tres_per_socket = xstrdup(new_text);
+		type = "tres_per_socket";
+		break;
+	case SORTID_TRES_PER_TASK:
+		job_msg->tres_per_task = xstrdup(new_text);
+		type = "tres_per_task";
 		break;
 	case SORTID_LICENSES:
 		job_msg->licenses = xstrdup(new_text);
@@ -1426,10 +1449,11 @@ static void _layout_job_record(GtkTreeView *treeview,
 						 SORTID_FED_VIABLE_SIBS),
 				   job_ptr->fed_siblings_viable_str);
 
+	/* "gres" replaced by "tres_per_node" in v18.08 */
 	add_display_treestore_line(update, treestore, &iter,
 				   find_col_name(display_data_job,
 						 SORTID_GRES),
-				   job_ptr->gres);
+				   job_ptr->tres_per_node);
 
 	group_info = getgrgid((gid_t)job_ptr->group_id);
 	if (group_info && group_info->gr_name[0])
@@ -1725,6 +1749,12 @@ static void _layout_job_record(GtkTreeView *treeview,
 						 SORTID_THREAD_SPEC),
 				   tmp_char);
 
+	slurm_make_time_str((time_t *)&job_ptr->accrue_time, tmp_char,
+			    sizeof(tmp_char));
+	add_display_treestore_line(update, treestore, &iter,
+				   find_col_name(display_data_job,
+						 SORTID_TIME_ACCRUE),
+				   tmp_char);
 	slurm_make_time_str((time_t *)&job_ptr->eligible_time, tmp_char,
 			    sizeof(tmp_char));
 	add_display_treestore_line(update, treestore, &iter,
@@ -1857,6 +1887,7 @@ static void _update_job_record(sview_job_info_t *sview_job_info_ptr,
 	char tmp_std_err[128],  tmp_std_in[128],     tmp_std_out[128];
 	char tmp_thread_spec[40], tmp_time_deadline[40], tmp_pack_job_id[40];
 	char tmp_pack_job_id_set[40], tmp_pack_job_offset[40];
+	char tmp_time_accrue[40];
 	char *tmp_batch,  *tmp_cont, *tmp_requeue, *tmp_uname;
 	char *tmp_reboot, *tmp_reason, *tmp_nodes;
 	char time_buf[32];
@@ -2131,6 +2162,9 @@ static void _update_job_record(sview_job_info_t *sview_job_info_ptr,
 
 	sprintf(tmp_prio, "%u", job_ptr->priority);
 
+	slurm_make_time_str((time_t *)&job_ptr->accrue_time, tmp_time_accrue,
+			    sizeof(tmp_time_accrue));
+
 	slurm_make_time_str((time_t *)&job_ptr->eligible_time, tmp_time_elig,
 			    sizeof(tmp_time_elig));
 
@@ -2268,7 +2302,6 @@ static void _update_job_record(sview_job_info_t *sview_job_info_ptr,
 				   SORTID_FED_ORIGIN,   job_ptr->fed_origin_str,
 				   SORTID_FED_VIABLE_SIBS,
 				   job_ptr->fed_siblings_viable_str,
-				   SORTID_GRES,         job_ptr->gres,
 				   SORTID_GROUP_ID,     tmp_group_id,
 				   SORTID_JOBID,        tmp_job_id,
 				   SORTID_JOBID_FORMATTED, tmp_job_id,
@@ -2309,6 +2342,7 @@ static void _update_job_record(sview_job_info_t *sview_job_info_ptr,
 				   SORTID_STD_OUT,      tmp_std_out,
 				   SORTID_SWITCHES,     tmp_rqswitch,
 				   SORTID_THREAD_SPEC,  tmp_thread_spec,
+				   SORTID_TIME_ACCRUE,  tmp_time_accrue,
 				   SORTID_TIME_ELIGIBLE,tmp_time_elig,
 				   SORTID_TIME_END,     tmp_time_end,
 				   SORTID_TIME_RESIZE,  tmp_time_resize,
@@ -2444,8 +2478,36 @@ static void _layout_step_record(GtkTreeView *treeview,
 
 	add_display_treestore_line(update, treestore, &iter,
 				   find_col_name(display_data_job,
-						 SORTID_GRES),
-				   step_ptr->gres);
+						 SORTID_CPUS_PER_TRES),
+				   step_ptr->cpus_per_tres);
+	add_display_treestore_line(update, treestore, &iter,
+				   find_col_name(display_data_job,
+						 SORTID_MEM_PER_TRES),
+				   step_ptr->mem_per_tres);
+	add_display_treestore_line(update, treestore, &iter,
+				   find_col_name(display_data_job,
+						 SORTID_TRES_BIND),
+				   step_ptr->tres_bind);
+	add_display_treestore_line(update, treestore, &iter,
+				   find_col_name(display_data_job,
+						 SORTID_TRES_FREQ),
+				   step_ptr->tres_freq);
+	add_display_treestore_line(update, treestore, &iter,
+				   find_col_name(display_data_job,
+						 SORTID_TRES_PER_JOB),
+				   step_ptr->tres_per_step);
+	add_display_treestore_line(update, treestore, &iter,
+				   find_col_name(display_data_job,
+						 SORTID_TRES_PER_NODE),
+				   step_ptr->tres_per_node);
+	add_display_treestore_line(update, treestore, &iter,
+				   find_col_name(display_data_job,
+						 SORTID_TRES_PER_SOCKET),
+				   step_ptr->tres_per_socket);
+	add_display_treestore_line(update, treestore, &iter,
+				   find_col_name(display_data_job,
+						 SORTID_TRES_PER_TASK),
+				   step_ptr->tres_per_task);
 
 	add_display_treestore_line(update, treestore, &iter,
 				   find_col_name(display_data_job,
@@ -2596,9 +2658,10 @@ static void _update_step_record(job_step_info_t *step_ptr,
 			   SORTID_COLOR,	sview_colors[color_inx],
 			   SORTID_COLOR_INX,    color_inx,
 			   SORTID_CPUS,         tmp_cpu_min,
-			   SORTID_GRES,         step_ptr->gres,
+			   SORTID_CPUS_PER_TRES, step_ptr->cpus_per_tres,
 			   SORTID_JOBID,        tmp_step_id,
 			   SORTID_JOBID_FORMATTED, tmp_job_id,
+			   SORTID_MEM_PER_TRES,	step_ptr->mem_per_tres,
 			   SORTID_NAME,         step_ptr->name,
 			   SORTID_NODE_INX,     step_ptr->node_inx,
 			   SORTID_NODELIST,     tmp_nodes,
@@ -2610,6 +2673,12 @@ static void _update_step_record(job_step_info_t *step_ptr,
 			   SORTID_TIME_START,   tmp_time_start,
 			   SORTID_TIMELIMIT,    tmp_time_limit,
 			   SORTID_TRES_ALLOC,   step_ptr->tres_alloc_str,
+			   SORTID_TRES_BIND,	step_ptr->tres_bind,
+			   SORTID_TRES_FREQ,	step_ptr->tres_freq,
+			   SORTID_TRES_PER_JOB,	step_ptr->tres_per_step,
+			   SORTID_TRES_PER_NODE, step_ptr->tres_per_node,
+			   SORTID_TRES_PER_SOCKET, step_ptr->tres_per_socket,
+			   SORTID_TRES_PER_TASK, step_ptr->tres_per_task,
 			   SORTID_UPDATED,      1,
 			   SORTID_USER_ID,      tmp_uname,
 			   -1);

@@ -72,6 +72,7 @@ struct node_res_record {
 	uint16_t cores;			/* count of cores per socket configured */
 	uint16_t threads;		/* count of hyperthreads per core */
 	uint16_t tot_cores;		/* total cores per node */
+	uint16_t tot_sockets;		/* total sockets per node */
 	uint16_t vpus;			/* count of virtual processors configure
 					 * this could be the physical threads
 					 * count or could be the core count if
@@ -111,7 +112,10 @@ struct part_res_record {
 
 /* Global variables */
 extern bool	backfill_busy_nodes;
+extern int	bf_window_scale;
 extern uint16_t	cr_type;
+extern uint64_t def_cpu_per_gpu;
+extern uint64_t def_mem_per_gpu;
 extern int	gang_mode;
 extern bool	have_dragonfly;
 extern bool	pack_serial_at_end;

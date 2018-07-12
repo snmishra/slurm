@@ -164,16 +164,7 @@ static int _setup_job_start_msg(dbd_job_start_msg_t *req,
 	req->account       = xstrdup(job_ptr->account);
 
 	req->assoc_id      = job_ptr->assoc_id;
-#ifdef HAVE_BG
-	select_g_select_jobinfo_get(job_ptr->select_jobinfo,
-				    SELECT_JOBDATA_BLOCK_ID,
-				    &req->block_id);
-	select_g_select_jobinfo_get(job_ptr->select_jobinfo,
-				    SELECT_JOBDATA_NODE_CNT,
-				    &req->alloc_nodes);
-#else
 	req->alloc_nodes   = job_ptr->total_nodes;
-#endif
 
 	if (job_ptr->resize_time) {
 		req->eligible_time = job_ptr->resize_time;
@@ -2690,7 +2681,6 @@ extern int jobacct_storage_p_step_start(void *db_conn,
 	dbd_step_start_msg_t req;
 	char temp_bit[BUF_SIZE];
 	char *temp_nodes = NULL;
-	char *ionodes = NULL;
 
 	if (!step_ptr->step_layout || !step_ptr->step_layout->task_cnt) {
 		tasks = step_ptr->job_ptr->total_cpus;
@@ -2698,31 +2688,19 @@ extern int jobacct_storage_p_step_start(void *db_conn,
 		temp_nodes = step_ptr->job_ptr->nodes;
 	} else {
 		tasks = step_ptr->step_layout->task_cnt;
-#ifdef HAVE_BGQ
-		select_g_select_jobinfo_get(step_ptr->select_jobinfo,
-					    SELECT_JOBDATA_NODE_CNT,
-					    &nodes);
-#else
 		nodes = step_ptr->step_layout->node_cnt;
-#endif
 		task_dist = step_ptr->step_layout->task_dist;
 		temp_nodes = step_ptr->step_layout->node_list;
 	}
 
-	select_g_select_jobinfo_get(step_ptr->select_jobinfo,
-				    SELECT_JOBDATA_IONODES,
-				    &ionodes);
-	if (ionodes) {
-		snprintf(node_list, BUFFER_SIZE, "%s[%s]", temp_nodes, ionodes);
-		xfree(ionodes);
-	} else
-		snprintf(node_list, BUFFER_SIZE, "%s", temp_nodes);
+	snprintf(node_list, BUFFER_SIZE, "%s", temp_nodes);
 
 	if (step_ptr->step_id == SLURM_BATCH_SCRIPT) {
-		/* We overload gres with the node name of where the
-		   script was running.
-		*/
-		snprintf(node_list, BUFFER_SIZE, "%s", step_ptr->gres);
+		/*
+		 * We overload tres_per_node with the node name of where the
+		 * script was running.
+		 */
+		snprintf(node_list, BUFFER_SIZE, "%s", step_ptr->tres_per_node);
 		nodes = tasks = 1;
 	}
 

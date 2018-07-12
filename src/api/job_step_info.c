@@ -162,7 +162,6 @@ slurm_sprint_job_step_info ( job_step_info_t * job_step_ptr,
 	char limit_str[32];
 	char tmp_line[128];
 	char *out = NULL;
-	uint32_t cluster_flags = slurmdb_setup_cluster_flags();
 	char *line_end = (one_liner) ? " " : "\n   ";
 
 	/****** Line 1 ******/
@@ -217,47 +216,15 @@ slurm_sprint_job_step_info ( job_step_info_t * job_step_ptr,
 		 job_state_string(job_step_ptr->state));
 	xstrcat(out, line_end);
 	xstrcat(out, tmp_line);
-	if (cluster_flags & CLUSTER_FLAG_BG) {
-		char *io_nodes = NULL;
-		select_g_select_jobinfo_get(job_step_ptr->select_jobinfo,
-					    SELECT_JOBDATA_IONODES,
-					    &io_nodes);
-		if (io_nodes) {
-			snprintf(tmp_line, sizeof(tmp_line),
-				 "Partition=%s MidplaneList=%s[%s] Gres=%s",
-				 job_step_ptr->partition,
-				 job_step_ptr->nodes, io_nodes,
-				 job_step_ptr->gres);
-			xfree(io_nodes);
-		} else
-			snprintf(tmp_line, sizeof(tmp_line),
-				 "Partition=%s MidplaneList=%s Gres=%s",
-				 job_step_ptr->partition,
-				 job_step_ptr->nodes,
-				 job_step_ptr->gres);
-	} else {
-		snprintf(tmp_line, sizeof(tmp_line),
-			"Partition=%s NodeList=%s Gres=%s",
-			job_step_ptr->partition, job_step_ptr->nodes,
-			job_step_ptr->gres);
-	}
+	snprintf(tmp_line, sizeof(tmp_line),
+		"Partition=%s NodeList=%s",
+		job_step_ptr->partition, job_step_ptr->nodes);
 	xstrcat(out, tmp_line);
 
 	/****** Line 3 ******/
-	if (cluster_flags & CLUSTER_FLAG_BGQ) {
-		uint32_t nodes = 0;
-		select_g_select_jobinfo_get(job_step_ptr->select_jobinfo,
-					    SELECT_JOBDATA_NODE_CNT,
-					    &nodes);
-		convert_num_unit((float)nodes, tmp_node_cnt,
-				 sizeof(tmp_node_cnt), UNIT_NONE, NO_VAL,
-				 CONVERT_NUM_UNIT_EXACT);
-	} else {
-		convert_num_unit((float)_nodes_in_list(job_step_ptr->nodes),
-				 tmp_node_cnt, sizeof(tmp_node_cnt), UNIT_NONE,
-				 NO_VAL, CONVERT_NUM_UNIT_EXACT);
-	}
-
+	convert_num_unit((float)_nodes_in_list(job_step_ptr->nodes),
+			 tmp_node_cnt, sizeof(tmp_node_cnt), UNIT_NONE,
+			 NO_VAL, CONVERT_NUM_UNIT_EXACT);
 	snprintf(tmp_line, sizeof(tmp_line),
 		"Nodes=%s CPUs=%u Tasks=%u Name=%s Network=%s",
 		 tmp_node_cnt, job_step_ptr->num_cpus, job_step_ptr->num_tasks,
@@ -276,6 +243,7 @@ slurm_sprint_job_step_info ( job_step_info_t * job_step_ptr,
 		"ResvPorts=%s Checkpoint=%u CheckpointDir=%s",
 		 job_step_ptr->resv_ports,
 		 job_step_ptr->ckpt_interval, job_step_ptr->ckpt_dir);
+	xstrcat(out, line_end);
 	xstrcat(out, tmp_line);
 
 	/****** Line 6 ******/
@@ -321,9 +289,9 @@ slurm_sprint_job_step_info ( job_step_info_t * job_step_ptr,
 	}
 
 	/****** Line (optional) ******/
-	if (job_step_ptr->tres_per_job) {
+	if (job_step_ptr->tres_per_step) {
 		xstrcat(out, line_end);
-		xstrfmtcat(out, "TresPerJob=%s", job_step_ptr->tres_per_job);
+		xstrfmtcat(out, "TresPerStep=%s", job_step_ptr->tres_per_step);
 	}
 
 	/****** Line (optional) ******/

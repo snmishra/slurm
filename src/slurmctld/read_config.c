@@ -503,29 +503,6 @@ static int _build_all_nodeline_info(void)
 	rc2 = build_all_frontend_info(false);
 	rc = MAX(rc, rc2);
 
-	/* Now perform operations on the node table as needed by slurmctld */
-#ifdef HAVE_BG
-{
-	char *node_000 = NULL;
-	struct node_record *node_rec = NULL;
-	if (slurmctld_conf.node_prefix)
-		node_000 = xstrdup(slurmctld_conf.node_prefix);
-#if (SYSTEM_DIMENSIONS == 3)
-	xstrcat(node_000, "000");
-#endif
-#if (SYSTEM_DIMENSIONS == 4)
-	xstrcat(node_000, "0000");
-#endif
-#if (SYSTEM_DIMENSIONS == 5)
-	xstrcat(node_000, "00000");
-#endif
-	node_rec = find_node_record(node_000);
-	if (node_rec == NULL)
-		info("WARNING: No node %s configured", node_000);
-	xfree(node_000);
-}
-#endif	/* HAVE_BG */
-
 	return rc;
 }
 
@@ -575,8 +552,7 @@ extern void qos_list_build(char *qos, bitstr_t **qos_bits)
 	slurmdb_qos_rec_t qos_rec, *qos_ptr = NULL;
 	bitstr_t *tmp_qos_bitstr;
 	int rc;
-	assoc_mgr_lock_t locks = { NO_LOCK, NO_LOCK, READ_LOCK, NO_LOCK,
-				   NO_LOCK, NO_LOCK, NO_LOCK };
+	assoc_mgr_lock_t locks = { .qos = READ_LOCK };
 
 	if (!qos) {
 		FREE_NULL_BITMAP(*qos_bits);
@@ -1183,6 +1159,10 @@ int read_slurm_conf(int recover, bool reconfig)
 		}
 	}
 
+	/*
+	 * Set standard features and preserve the plugin controlled ones.
+	 * A reconfig always imply load the state from slurm.conf
+	 */
 	if (reconfig) {		/* Preserve state from memory */
 		if (old_node_table_ptr) {
 			info("restoring original state of nodes");
@@ -1211,16 +1191,22 @@ int read_slurm_conf(int recover, bool reconfig)
 		reset_first_job_id();
 		(void) slurm_sched_g_reconfig();
 	} else if (recover == 0) {	/* Build everything from slurm.conf */
+		_set_features(node_record_table_ptr, node_record_count,
+			      recover);
 		load_last_job_id();
 		reset_first_job_id();
 		(void) slurm_sched_g_reconfig();
 	} else if (recover == 1) {	/* Load job & node state files */
 		(void) load_all_node_state(true);
+		_set_features(node_record_table_ptr, node_record_count,
+			      recover);
 		(void) load_all_front_end_state(true);
 		load_job_ret = load_all_job_state();
 		sync_job_priorities();
 	} else if (recover > 1) {	/* Load node, part & job state files */
 		(void) load_all_node_state(false);
+		_set_features(old_node_table_ptr, old_node_record_count,
+			      recover);
 		(void) load_all_front_end_state(false);
 		(void) load_all_part_state();
 		load_job_ret = load_all_job_state();
@@ -1269,11 +1255,6 @@ int read_slurm_conf(int recover, bool reconfig)
 
 	init_requeue_policy();
 
-	if (!reconfig && recover < 2) {
-		_set_features(node_record_table_ptr, node_record_count,
-			      recover);
-	}
-
 	/* NOTE: Run restore_node_features before _restore_job_dependencies */
 	restore_node_features(recover);
 
@@ -1296,7 +1277,8 @@ int read_slurm_conf(int recover, bool reconfig)
 		}
 	}
 
-	if (node_features_g_count() == 0)
+	/* Active and available features can be different on -R */
+	if ((node_features_g_count() == 0) && (recover != 2))
 		build_feature_list_eq();
 	else
 		build_feature_list_ne();
@@ -1641,20 +1623,19 @@ static void _gres_reconfig(bool reconfig)
 	}
 }
 /*
- * Configure node features based on old records if we are in a reconfig,
- * or from slurm.conf if we are starting slurmctld and reading config.
- * If recover is 2, we will just copy what we had previously.
- * old_node_table_ptr IN - Previous nodes information
- * old_node_record_count IN - Count of previous nodes information
- * recover IN - replace node features data with latest available information
- *              depending upon value.
+ * Configure node features.
+ * IN old_node_table_ptr IN - Previous nodes information
+ * IN old_node_record_count IN - Count of previous nodes information
+ * IN recover - replace node features data depending upon value.
+ *              0, 1 - use data from config record, built using slurm.conf
+ *              2 = use data from node record, built from saved state
  */
 static void _set_features(struct node_record *old_node_table_ptr,
 			  int old_node_record_count, int recover)
 {
 	struct node_record *node_ptr, *old_node_ptr;
 	char *tmp, *tok, *sep;
-	int i;
+	int i, node_features_cnt = node_features_g_count();
 
 	for (i = 0, old_node_ptr = old_node_table_ptr;
 	     i < old_node_record_count;
@@ -1665,39 +1646,28 @@ static void _set_features(struct node_record *old_node_table_ptr,
 		if (node_ptr == NULL)
 			continue;
 
-		xfree(node_ptr->features);
-		xfree(node_ptr->features_act);
-
-		/* Copy slurm.conf features to this node_ptr */
-		node_ptr->features = xstrdup(node_ptr->config_ptr->feature);
-
-		if (node_features_g_count() == 0) {
-			node_ptr->features_act = xstrdup(node_ptr->features);
+		/*
+		 * Load all from state, ignore what has been read from
+		 * slurm.conf. Features in node record just a placeholder
+		 * for restore_node_features() to set up new config records.
+		 */
+		if (recover == 2) {
+			xfree(node_ptr->features);
+			xfree(node_ptr->features_act);
+			node_ptr->features = old_node_ptr->features;
+			node_ptr->features_act = old_node_ptr->features_act;
+			old_node_ptr->features = NULL;
+			old_node_ptr->features_act = NULL;
 			continue;
 		}
 
-		/* If we are here, there's a node_features plugin active */
+		xfree(node_ptr->features_act);
+		node_ptr->features_act = xstrdup(node_ptr->features);
 
-		/*
-		 * The subset of non-plugin-controlled features available found
-		 * in slurm.conf for this node are copied into features_act.
-		 * This does a reset of the active features for this node.
-		 */
-		if (node_ptr->features != NULL) {
-			char *save_ptr = NULL;
-			sep = "";
-			tmp = xstrdup(node_ptr->features);
-			tok = strtok_r(tmp, ",", &save_ptr);
-			while (tok) {
-				if (!node_features_g_changeable_feature(tok)) {
-					xstrfmtcat(node_ptr->features_act,
-						   "%s%s", sep, tok);
-					sep = ",";
-				}
-				tok = strtok_r(NULL, ",", &save_ptr);
-			}
-			xfree(tmp);
-		}
+		if (node_features_cnt == 0)
+			continue;
+
+		/* If we are here, there's a node_features plugin active */
 
 		/*
 		 * The subset of plugin-controlled features_available
@@ -1831,17 +1801,13 @@ static int _restore_node_state(int recover,
 		node_ptr->select_nodeinfo = old_node_ptr->select_nodeinfo;
 		old_node_ptr->select_nodeinfo = tmp_select_nodeinfo;
 
-#ifndef HAVE_BG
-		/* If running on a BlueGene system the cpus never
-		   change so just skip this.
-		*/
 		if (old_node_ptr->port != node_ptr->config_ptr->cpus) {
 			rc = ESLURM_NEED_RESTART;
 			error("Configured cpu count change on %s (%u to %u)",
 			      node_ptr->name, old_node_ptr->port,
 			      node_ptr->config_ptr->cpus);
 		}
-#endif
+
 		node_ptr->boot_time     = old_node_ptr->boot_time;
 		node_ptr->cpus          = old_node_ptr->cpus;
 		node_ptr->cores         = old_node_ptr->cores;
@@ -1872,12 +1838,6 @@ static int _restore_node_state(int recover,
 			old_node_ptr->reason = NULL;
 		}
 		if (recover == 2) {
-			/* NOTE: features in node record just a placeholder
-			 * for restore_node_features() to set up new config
-			 * records. */
-			xfree(node_ptr->features);
-			node_ptr->features = old_node_ptr->features;
-			old_node_ptr->features = NULL;
 			xfree(node_ptr->gres);
 			node_ptr->gres = old_node_ptr->gres;
 			old_node_ptr->gres = NULL;
@@ -2630,8 +2590,7 @@ static int _restore_job_dependencies(void)
 	char *new_depend;
 	bool valid = true;
 	List license_list;
-	assoc_mgr_lock_t locks = { NO_LOCK, NO_LOCK, NO_LOCK, NO_LOCK,
-				   READ_LOCK, NO_LOCK, NO_LOCK };
+	assoc_mgr_lock_t locks = { .tres = READ_LOCK };
 	assoc_mgr_lock(&locks);
 
 	assoc_mgr_clear_used_info();
@@ -2655,7 +2614,10 @@ static int _restore_job_dependencies(void)
 			    IS_JOB_SUSPENDED(job_ptr)) {
 				acct_policy_job_begin(job_ptr);
 				job_claim_resv(job_ptr);
-			}
+			} else if (IS_JOB_PENDING(job_ptr) &&
+				   job_ptr->details &&
+				   job_ptr->details->accrue_time)
+				acct_policy_add_accrue_time(job_ptr, true);
 		}
 
 		license_list = license_validate(job_ptr->licenses,

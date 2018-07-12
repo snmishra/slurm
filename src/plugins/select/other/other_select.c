@@ -82,7 +82,6 @@ const char *node_select_syms[] = {
 	"select_p_step_pick_nodes",
 	"select_p_step_start",
 	"select_p_step_finish",
-	"select_p_pack_select_info",
 	"select_p_select_nodeinfo_pack",
 	"select_p_select_nodeinfo_unpack",
 	"select_p_select_nodeinfo_alloc",
@@ -99,19 +98,14 @@ const char *node_select_syms[] = {
 	"select_p_select_jobinfo_unpack",
 	"select_p_select_jobinfo_sprint",
 	"select_p_select_jobinfo_xstrdup",
-	"select_p_update_block",
-	"select_p_update_sub_node",
-	"select_p_fail_cnode",
+	"select_p_update_basil",
 	"select_p_get_info_from_plugin",
 	"select_p_update_node_config",
 	"select_p_update_node_state",
-	"select_p_alter_node_cnt",
 	"select_p_reconfigure",
 	"select_p_resv_test",
 	"select_p_ba_init",
-	"select_p_ba_fini",
 	"select_p_ba_get_dims",
-	"select_p_ba_cnodelist2bitmap",
 };
 
 static slurm_select_ops_t ops;
@@ -469,16 +463,6 @@ extern int other_step_finish(struct step_record *step_ptr, bool killing_step)
 		(step_ptr, killing_step);
 }
 
-extern int other_pack_select_info(time_t last_query_time, uint16_t show_flags,
-				  Buf *buffer, uint16_t protocol_version)
-{
-	if (other_select_init() < 0)
-		return SLURM_ERROR;
-
-	return (*(ops.pack_select_info))
-		(last_query_time, show_flags, buffer, protocol_version);
-}
-
 extern int other_select_nodeinfo_pack(select_nodeinfo_t *nodeinfo,
 				      Buf buffer,
 				      uint16_t protocol_version)
@@ -660,43 +644,6 @@ extern char *other_select_jobinfo_xstrdup(
 }
 
 /*
- * Update specific block (usually something has gone wrong)
- * IN block_desc_ptr - information about the block
- */
-extern int other_update_block (update_block_msg_t *block_desc_ptr)
-{
-	if (other_select_init() < 0)
-		return SLURM_ERROR;
-
-	return (*(ops.update_block))(block_desc_ptr);
-}
-
-/*
- * Update specific sub nodes (usually something has gone wrong)
- * IN block_desc_ptr - information about the block
- */
-extern int other_update_sub_node (update_block_msg_t *block_desc_ptr)
-{
-	if (other_select_init() < 0)
-		return SLURM_ERROR;
-
-	return (*(ops.update_sub_node))(block_desc_ptr);
-}
-
-/*
- * Fail certain cnodes in a blocks midplane (usually comes from the
- *        IBM runjob mux)
- * IN step_ptr - step that failed
- */
-extern int other_fail_cnode (struct step_record *step_ptr)
-{
-	if (other_select_init() < 0)
-		return SLURM_ERROR;
-
-	return (*(ops.fail_cnode))(step_ptr);
-}
-
-/*
  * Get select data from a plugin
  * IN dinfo     - type of data to get from the node record
  *                (see enum select_plugindata_info)
@@ -743,18 +690,6 @@ extern int other_update_node_state (struct node_record *node_ptr)
 }
 
 /*
- * Alter the node count for a job given the type of system we are on
- * IN/OUT job_desc  - current job desc
- */
-extern int other_alter_node_cnt (enum select_node_cnt type, void *data)
-{
-	if (other_select_init() < 0)
-		return SLURM_ERROR;
-
-	return (*(ops.alter_node_cnt))(type, data);
-}
-
-/*
  * Note reconfiguration or change in partition configuration
  */
 extern int other_reconfigure (void)
@@ -785,26 +720,10 @@ extern void other_ba_init(node_info_msg_t *node_info_ptr, bool sanity_check)
 	(*(ops.ba_init))(node_info_ptr, sanity_check);
 }
 
-extern void other_ba_fini(void)
-{
-	if (other_select_init() < 0)
-		return;
-
-	(*(ops.ba_fini))();
-}
-
 extern int *other_ba_get_dims(void)
 {
 	if (other_select_init() < 0)
 		return NULL;
 
 	return (*(ops.ba_get_dims))();
-}
-
-extern bitstr_t *other_ba_cnodelist2bitmap(char *cnodelist)
-{
-	if (other_select_init() < 0)
-		return NULL;
-
-	return (*(ops.ba_cnodelist2bitmap))(cnodelist);
 }

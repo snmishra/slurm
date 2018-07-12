@@ -97,7 +97,6 @@ slurm_print_node_info_msg ( FILE * out, node_info_msg_t * node_info_msg_ptr,
 
 	for (i = 0; i < node_info_msg_ptr-> record_count; i++) {
 		slurm_print_node_table ( out, & node_ptr[i],
-					 node_info_msg_ptr->node_scaling,
 					 one_liner ) ;
 	}
 }
@@ -108,16 +107,12 @@ slurm_print_node_info_msg ( FILE * out, node_info_msg_t * node_info_msg_ptr,
  *	based upon message as loaded using slurm_load_node
  * IN out - file to write to
  * IN node_ptr - an individual node information record pointer
- * IN node_scaling - number of nodes each node represents
  * IN one_liner - print as a single line if true
  */
-void
-slurm_print_node_table ( FILE * out, node_info_t * node_ptr,
-			 int node_scaling, int one_liner )
+void slurm_print_node_table(FILE *out, node_info_t *node_ptr, int one_liner)
 {
-	char *print_this = slurm_sprint_node_table(node_ptr, node_scaling,
-						   one_liner);
-	fprintf ( out, "%s", print_this);
+	char *print_this = slurm_sprint_node_table(node_ptr, one_liner);
+	fprintf(out, "%s", print_this);
 	xfree(print_this);
 }
 
@@ -174,29 +169,21 @@ slurm_populate_node_partitions(node_info_msg_t *node_buffer_ptr,
  * slurm_sprint_node_table - output information about a specific Slurm nodes
  *	based upon message as loaded using slurm_load_node
  * IN node_ptr - an individual node information record pointer
- * IN node_scaling - number of nodes each node represents
  * IN one_liner - print as a single line if true
  * RET out - char * containing formatted output (must be freed after call)
  *           NULL is returned on failure.
  */
-char *
-slurm_sprint_node_table (node_info_t * node_ptr,
-			 int node_scaling, int one_liner )
+char *slurm_sprint_node_table(node_info_t *node_ptr, int one_liner)
 {
 	uint32_t my_state = node_ptr->node_state;
 	char *cloud_str = "", *comp_str = "", *drain_str = "", *power_str = "";
 	char time_str[32];
 	char *out = NULL, *reason_str = NULL, *select_reason_str = NULL;
-	uint16_t err_cpus = 0, alloc_cpus = 0;
-	int cpus_per_node = 1;
+	uint16_t alloc_cpus = 0;
 	int idle_cpus;
-	uint32_t cluster_flags = slurmdb_setup_cluster_flags();
 	uint64_t alloc_memory;
 	char *node_alloc_tres = NULL;
 	char *line_end = (one_liner) ? " " : "\n   ";
-
-	if (node_scaling)
-		cpus_per_node = node_ptr->cpus / node_scaling;
 
 	if (my_state & NODE_STATE_CLOUD) {
 		my_state &= (~NODE_STATE_CLOUD);
@@ -222,41 +209,15 @@ slurm_sprint_node_table (node_info_t * node_ptr,
 				  SELECT_NODEDATA_SUBCNT,
 				  NODE_STATE_ALLOCATED,
 				  &alloc_cpus);
-	if (cluster_flags & CLUSTER_FLAG_BG) {
-		if (!alloc_cpus &&
-		    (IS_NODE_ALLOCATED(node_ptr) ||
-		     IS_NODE_COMPLETING(node_ptr)))
-			alloc_cpus = node_ptr->cpus;
-		else
-			alloc_cpus *= cpus_per_node;
-	}
 	idle_cpus = node_ptr->cpus - alloc_cpus;
 
-	slurm_get_select_nodeinfo(node_ptr->select_nodeinfo,
-				  SELECT_NODEDATA_SUBCNT,
-				  NODE_STATE_ERROR,
-				  &err_cpus);
-	if (cluster_flags & CLUSTER_FLAG_BG)
-		err_cpus *= cpus_per_node;
-	idle_cpus -= err_cpus;
-
-	if ((alloc_cpus && err_cpus) ||
-	    (idle_cpus  && (idle_cpus != node_ptr->cpus))) {
+	if (idle_cpus  && (idle_cpus != node_ptr->cpus)) {
 		my_state &= NODE_STATE_FLAGS;
 		my_state |= NODE_STATE_MIXED;
 	}
 
 	/****** Line 1 ******/
 	xstrfmtcat(out, "NodeName=%s ", node_ptr->name);
-	if (cluster_flags & CLUSTER_FLAG_BG) {
-		slurm_get_select_nodeinfo(node_ptr->select_nodeinfo,
-					  SELECT_NODEDATA_RACK_MP,
-					  0, &select_reason_str);
-		if (select_reason_str) {
-			xstrfmtcat(out, "RackMidplane=%s ", select_reason_str);
-			xfree(select_reason_str);
-		}
-	}
 
 	if (node_ptr->arch)
 		xstrfmtcat(out, "Arch=%s ", node_ptr->arch);
@@ -272,8 +233,8 @@ slurm_sprint_node_table (node_info_t * node_ptr,
 	xstrcat(out, line_end);
 
 	/****** Line ******/
-	xstrfmtcat(out, "CPUAlloc=%u CPUErr=%u CPUTot=%u ",
-		   alloc_cpus, err_cpus, node_ptr->cpus);
+	xstrfmtcat(out, "CPUAlloc=%u CPUTot=%u ",
+		   alloc_cpus, node_ptr->cpus);
 
 	if (node_ptr->cpu_load == NO_VAL)
 		xstrcat(out, "CPULoad=N/A");
@@ -744,7 +705,7 @@ extern int slurm_load_node(time_t update_time, node_info_msg_t **resp,
 	req_msg.msg_type = REQUEST_NODE_INFO;
 	req_msg.data     = &req;
 
-	if (show_flags & SHOW_FEDERATION) {
+	if ((show_flags & SHOW_FEDERATION) && ptr) { /* "ptr" check for CLANG */
 		fed = (slurmdb_federation_rec_t *) ptr;
 		rc = _load_fed_nodes(&req_msg, resp, show_flags, cluster_name,
 				     fed);

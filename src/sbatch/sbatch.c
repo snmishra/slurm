@@ -56,6 +56,8 @@
 #include "src/common/proc_args.h"
 #include "src/common/read_config.h"
 #include "src/common/slurm_rlimits_info.h"
+#include "src/common/tres_bind.h"
+#include "src/common/tres_frequency.h"
 #include "src/common/xstring.h"
 #include "src/common/xmalloc.h"
 
@@ -157,7 +159,7 @@ int main(int argc, char **argv)
 		}
 
 		if (opt.get_user_env_time < 0) {
-			/* Moab does not propage the user's resource limits, so
+			/* Moab doesn't propagate the user's resource limits, so
 			 * slurmd determines the values at the same time that it
 			 * gets the user's default environment variables. */
 			(void) _set_rlimit_env();
@@ -200,6 +202,10 @@ int main(int argc, char **argv)
 			list_append(job_req_list, desc);
 		}
 	}
+	if (!desc) {	/* For CLANG false positive */
+		error("Internal parsing error");
+		exit(1);
+	}
 
 	if (job_env_list) {
 		ListIterator desc_iter, env_iter;
@@ -218,9 +224,15 @@ int main(int argc, char **argv)
 		set_envs(&desc->environment, &pack_env, -1);
 		desc->env_size = envcount(desc->environment);
 	}
+	if (!desc) {	/* For CLANG false positive */
+		error("Internal parsing error");
+		exit(1);
+	}
 
-	/* If can run on multiple clusters find the earliest run time
-	 * and run it there */
+	/*
+	 * If can run on multiple clusters find the earliest run time
+	 * and run it there
+	 */
 	if (opt.clusters) {
 		if (job_req_list) {
 			rc = slurmdb_get_first_pack_cluster(job_req_list,
@@ -537,7 +549,6 @@ static int _fill_job_desc_from_opts(job_desc_msg_t *desc)
 		desc->core_spec = opt.core_spec;
 	desc->features = xstrdup(opt.constraints);
 	desc->cluster_features = xstrdup(opt.c_constraints);
-	desc->gres = xstrdup(opt.gres);
 	if (opt.job_name)
 		desc->name = xstrdup(opt.job_name);
 	else
@@ -608,28 +619,8 @@ static int _fill_job_desc_from_opts(job_desc_msg_t *desc)
 
 	if (opt.hold)
 		desc->priority     = 0;
-
-	if (opt.geometry[0] != NO_VAL16) {
-		int dims = slurmdb_setup_cluster_dims();
-
-		for (i = 0; i < dims; i++)
-			desc->geometry[i] = opt.geometry[i];
-	}
-
-	memcpy(desc->conn_type, opt.conn_type, sizeof(desc->conn_type));
-
 	if (opt.reboot)
 		desc->reboot = 1;
-	if (opt.no_rotate)
-		desc->rotate = 0;
-	if (opt.blrtsimage)
-		desc->blrtsimage = xstrdup(opt.blrtsimage);
-	if (opt.linuximage)
-		desc->linuximage = xstrdup(opt.linuximage);
-	if (opt.mloaderimage)
-		desc->mloaderimage = xstrdup(opt.mloaderimage);
-	if (opt.ramdiskimage)
-		desc->ramdiskimage = xstrdup(opt.ramdiskimage);
 
 	/* job constraints */
 	if (opt.pn_min_cpus > -1)
@@ -761,11 +752,28 @@ static int _fill_job_desc_from_opts(job_desc_msg_t *desc)
 	if (opt.cpus_per_gpu)
 		xstrfmtcat(desc->cpus_per_tres, "gpu:%d", opt.cpus_per_gpu);
 	if (opt.gpu_bind)
-		xstrfmtcat(desc->tres_bind, "gpu:%s", opt.gpu_bind);
-	if (opt.gpu_freq)
-		xstrfmtcat(desc->tres_freq, "gpu:%s", opt.gpu_freq);
+		xstrfmtcat(opt.tres_bind, "gpu:%s", opt.gpu_bind);
+	if (tres_bind_verify_cmdline(opt.tres_bind)) {
+		error("Invalid --tres-bind argument: %s. Ignored",
+		      opt.tres_bind);
+		xfree(opt.tres_bind);
+	}
+	desc->tres_bind = xstrdup(opt.tres_bind);
+	xfmt_tres(&opt.tres_freq, "gpu", opt.gpu_freq);
+	if (tres_freq_verify_cmdline(opt.tres_freq)) {
+		error("Invalid --tres-freq argument: %s. Ignored",
+		      opt.tres_freq);
+		xfree(opt.tres_freq);
+	}
+	desc->tres_freq = xstrdup(opt.tres_freq);
 	xfmt_tres(&desc->tres_per_job,    "gpu", opt.gpus);
 	xfmt_tres(&desc->tres_per_node,   "gpu", opt.gpus_per_node);
+	if (opt.gres) {
+		if (desc->tres_per_node)
+			xstrfmtcat(desc->tres_per_node, ",%s", opt.gres);
+		else
+			desc->tres_per_node = xstrdup(opt.gres);
+	}
 	xfmt_tres(&desc->tres_per_socket, "gpu", opt.gpus_per_socket);
 	xfmt_tres(&desc->tres_per_task,   "gpu", opt.gpus_per_task);
 	if (opt.mem_per_gpu)

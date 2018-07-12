@@ -45,7 +45,7 @@
 #include "src/common/pack.h"
 
 #define GRES_MAGIC 0x438a34d4
-
+#define GRES_MAX_LINK 1023
 
 enum {
 	GRES_VAL_TYPE_FOUND  = 0,
@@ -75,22 +75,25 @@ typedef struct gres_slurmd_conf {
 	char *file;
 	uint8_t has_file;	/* non-zero if file is set, flag for RPC */
 
+	/* Comma-separated list of communication link IDs (numbers) */
+	char *links;
+
 	/* Name of this gres */
 	char *name;
 
 	/* Type of this gres (e.g. model name) */
-	char *type;
+	char *type_name;
 
 	/* Gres ID number */
 	uint32_t plugin_id;
 } gres_slurmd_conf_t;
 
-/* Current gres state information managed by slurmctld daemon */
+/* Current GRES state information managed by slurmctld daemon */
 typedef struct gres_node_state {
 	/* Actual hardware found */
 	uint64_t gres_cnt_found;
 
-	/* Configured resources via Gres parameter */
+	/* Configured resources via "Gres" parameter */
 	uint64_t gres_cnt_config;
 
 	/* Non-consumable: Do not track resources allocated to jobs */
@@ -99,8 +102,10 @@ typedef struct gres_node_state {
 	/* True if set by node_feature plugin, ignore info from compute node */
 	bool node_feature;
 
-	/* Total resources available for allocation to jobs.
-	 * gres_cnt_found or gres_cnt_config, depending upon FastSchedule */
+	/*
+	 * Total resources available for allocation to jobs.
+	 * gres_cnt_found or gres_cnt_config, depending upon FastSchedule
+	 */
 	uint64_t gres_cnt_avail;
 
 	/* List of GRES in current use. Set NULL if needs to be rebuilt. */
@@ -110,24 +115,29 @@ typedef struct gres_node_state {
 	uint64_t  gres_cnt_alloc;
 	bitstr_t *gres_bit_alloc;	/* If gres.conf contains File field */
 
-	/* Topology specific information (if gres.conf contains CPUs option) */
+	/* Topology specific information */
 	uint16_t topo_cnt;		/* Size of topo_ arrays */
-	bitstr_t **topo_cpus_bitmap;
+	bitstr_t **links_bitmap;
+	bitstr_t **topo_core_bitmap;
 	bitstr_t **topo_gres_bitmap;
 	uint64_t *topo_gres_cnt_alloc;
 	uint64_t *topo_gres_cnt_avail;
-	char **topo_model;		/* Type of this gres (e.g. model name) */
+	uint32_t *topo_type_id;		/* GRES type (e.g. model ID) */
+	char **topo_type_name;		/* GRES type (e.g. model name) */
 
-	/* Gres type specific information (if gres.conf contains type option) */
+	/* GRES type specific information (if gres.conf contains type option) */
 	uint16_t type_cnt;		/* Size of type_ arrays */
 	uint64_t *type_cnt_alloc;
 	uint64_t *type_cnt_avail;
-	char **type_model;		/* Type of this gres (e.g. model name) */
+	uint32_t *type_id;		/* GRES type (e.g. model ID) */
+	char **type_name;		/* GRES type (e.g. model name) */
 } gres_node_state_t;
 
 /* Gres job state as used by slurmctld daemon */
 typedef struct gres_job_state {
-	char *type_model;		/* Type of this gres (e.g. model name) */
+	char *gres_name;		/* GRES name (e.g. "gpu") */
+	uint32_t type_id;		/* GRES type (e.g. model ID) */
+	char *type_name;		/* GRES type (e.g. model name) */
 
 	/* Count of required GRES resources plus associated CPUs and memory */
 	uint16_t cpus_per_gres;
@@ -137,8 +147,16 @@ typedef struct gres_job_state {
 	uint64_t gres_per_task;
 	uint64_t mem_per_gres;
 
+	/*
+	 * Default GRES configuration parameters. These values are subject to
+	 * change depending upon which partition the job is currently being
+	 * considered for scheduling in.
+	 */
+	uint16_t def_cpus_per_gres;
+	uint64_t def_mem_per_gres;
+
 	/* Allocated resources details */
-	uint64_t total_gres;		/* allocated GRES for this job */
+	uint64_t total_gres;		/* Count of allocated GRES to job */
 	uint64_t *gres_cnt_node_alloc;	/* Per node GRES allocated,
 					 * Used without GRES files */
 	uint32_t node_cnt;		/* 0 if no_consume */
@@ -151,18 +169,16 @@ typedef struct gres_job_state {
 	 */
 	bitstr_t **gres_bit_step_alloc;
 	uint64_t  *gres_cnt_step_alloc;
-
-	/* key for searches with name and type */
-	uint32_t gres_name_type_id;
 } gres_job_state_t;
 
 /* Gres job step state as used by slurmctld daemon */
 typedef struct gres_step_state {
-	char *type_model;		/* Type of this gres (e.g. model name) */
+	uint32_t type_id;		/* GRES type (e.g. model ID) */
+	char *type_name;		/* GRES type (e.g. model name) */
 
 	/* Count of required GRES resources plus associated CPUs and memory */
 	uint16_t cpus_per_gres;
-	uint64_t gres_per_job;
+	uint64_t gres_per_step;
 	uint64_t gres_per_node;
 	uint64_t gres_per_socket;
 	uint64_t gres_per_task;
@@ -184,6 +200,20 @@ typedef struct gres_step_state {
 	bitstr_t **gres_bit_alloc;	/* Used with GRES files */
 } gres_step_state_t;
 
+/* Per-socket GRES availability information for scheduling purposes */
+typedef struct sock_gres {	/* GRES availability by socket */
+	uint64_t cnt_any_sock;	/* GRES count unconstrained by cores */
+	uint64_t *cnt_by_sock;	/* Per-socket GRES count of this name & type */
+	char *gres_name;	/* GRES name */
+	gres_job_state_t *job_specs;	/* Pointer to job info, for limits */
+	uint64_t max_gres;	/* Maximum GRES permitted on this node based
+				 * upon mem_per_gres, 0 if no limit */
+	uint32_t plugin_id;	/* Plugin ID (for quick search) */
+	uint64_t total_cnt;	/* Total GRES count of this name & type */
+	uint32_t type_id;	/* GRES type (e.g. model ID) */
+	char *type_name;	/* GRES type (e.g. model name) */
+} sock_gres_t;
+
 typedef enum {
 	GRES_STATE_TYPE_NODE = 0,
 	GRES_STATE_TYPE_JOB,
@@ -191,14 +221,14 @@ typedef enum {
 } gres_state_type_enum_t;
 
 /*
- * Initialize the gres plugin.
+ * Initialize the GRES plugins.
  *
  * Returns a Slurm errno.
  */
 extern int gres_plugin_init(void);
 
 /*
- * Terminate the gres plugin. Free memory.
+ * Terminate the GRES plugins. Free memory.
  *
  * Returns a Slurm errno.
  */
@@ -225,7 +255,7 @@ extern int gres_plugin_help_msg(char *msg, int msg_size);
 
 /*
  **************************************************************************
- *                 PLUGIN CALLS FOR SLURMD DAEMON                         *
+ *                 PLUGIN CALLS FOR SLURMD DAEMOtN                         *
  **************************************************************************
  */
 /*
@@ -427,32 +457,107 @@ extern int gres_plugin_job_count(List gres_list, int arr_len,
 				 uint64_t *gres_count_vals);
 
 /*
- * Given a job's requested gres configuration, validate it and build a gres list
- * IN req_config - job request's gres input string
- * OUT gres_list - List of Gres records for this job to track usage
- * RET SLURM_SUCCESS or ESLURM_INVALID_GRES
+ * Build a string identifying total GRES counts of each type
+ * IN gres_list - a List of GRES types allocated to a job.
+ * RET string containing comma-separated list of gres type:model:count
+ *     must release memory using xfree()
  */
-extern int gres_plugin_job_state_validate(char **req_config, List *gres_list);
+extern char *gres_plugin_job_alloc_count(List gres_list);
 
 /*
- * Given a job's requested gres configuration, validate it and build a gres list
- * IN *tres* - job request's gres input string
- * IN num_tasks - requested task count
- * IN min_nodes - requested minimum node count
- * IN max_nodes - requested maximum node count
+ * Given a job's requested GRES configuration, validate it and build a GRES list
+ * Note: This function can be used for a new request with gres_list==NULL or
+ *	 used to update an existing job, in which case gres_list is a copy
+ *	 of the job's original value (so we can clear fields as needed)
+ * IN *tres* - job requested gres input string
+ * IN/OUT num_tasks - requested task count, may be reset to provide
+ *		      consistent gres_per_node/task values
+ * IN/OUT min_nodes - requested minimum node count, may be reset to provide
+ *		      consistent gres_per_node/task values
+ * IN/OUT max_nodes - requested maximum node count, may be reset to provide
+ *		      consistent gres_per_node/task values
+ * IN/OUT ntasks_per_node - requested tasks_per_node count, may be reset to
+ *		      provide consistent gres_per_node/task values
+ * IN/OUT ntasks_per_socket - requested ntasks_per_socket count, may be reset to
+ *		      provide consistent gres_per_node/task values
+ * IN/OUT sockets_per_node - requested sockets_per_node count, may be reset to
+ *		      provide consistent gres_per_socket/node values
+ * IN/OUT cpus_per_task - requested ntasks_per_socket count, may be reset to
+ *		      provide consistent gres_per_task/cpus_per_gres values
  * OUT gres_list - List of GRES records for this job to track usage
  * RET SLURM_SUCCESS or ESLURM_INVALID_GRES
  */
-extern int gres_plugin_job_state_validate2(char *cpus_per_tres,
-					   char *tres_per_job,
-					   char *tres_per_node,
-					   char *tres_per_socket,
-					   char *tres_per_task,
-					   char *mem_per_tres,
-					   uint32_t num_tasks,
-					   uint32_t min_nodes,
-					   uint32_t max_nodes,
-					   List *gres_list);
+extern int gres_plugin_job_state_validate(char *cpus_per_tres,
+					  char *tres_per_job,
+					  char *tres_per_node,
+					  char *tres_per_socket,
+					  char *tres_per_task,
+					  char *mem_per_tres,
+					  uint32_t *num_tasks,
+					  uint32_t *min_nodes,
+					  uint32_t *max_nodes,
+					  uint16_t *ntasks_per_node,
+					  uint16_t *ntasks_per_socket,
+					  uint16_t *sockets_per_node,
+					  uint16_t *cpus_per_task,
+					  List *gres_list);
+
+/*
+ * Clear GRES allocation info for all job GRES at start of scheduling cycle
+ * Return TRUE if any gres_per_job constraints to satisfy
+ */
+extern bool gres_plugin_job_sched_init(List job_gres_list);
+
+/*
+ * Return TRUE if all gres_per_job specifications are satisfied
+ */
+extern bool gres_plugin_job_sched_test(List job_gres_list, uint32_t job_id);
+
+/*
+ * Return TRUE if all gres_per_job specifications will be satisfied with
+ *	the addtitional resources provided by a single node
+ * IN job_gres_list - List of job's GRES requirements (job_gres_state_t)
+ * IN sock_gres_list - Per socket GRES availability on this node (sock_gres_t)
+ * IN job_id - The job being tested
+ */
+extern bool gres_plugin_job_sched_test2(List job_gres_list, List sock_gres_list,
+					uint32_t job_id);
+
+/*
+ * Update a job's total_gres counter as we add a node to potential allocaiton
+ * IN job_gres_list - List of job's GRES requirements (job_gres_state_t)
+ * IN sock_gres_list - Per socket GRES availability on this node (sock_gres_t)
+ */
+extern void gres_plugin_job_sched_add(List job_gres_list, List sock_gres_list);
+
+/*
+ * Create/update List GRES that can be made available on the specified node
+ * IN/OUT consec_gres - List of sock_gres_t that can be made available on
+ *			a set of nodes
+ * IN job_gres_list - List of job's GRES requirements (gres_job_state_t)
+ * IN sock_gres_list - Per socket GRES availability on this node (sock_gres_t)
+ */
+extern void gres_plugin_job_sched_consec(List *consec_gres, List job_gres_list,
+					 List sock_gres_list);
+
+/*
+ * Determine if the additional sock_gres_list resources will result in
+ * satisfying the job's gres_per_job constraints
+ * IN job_gres_list - job's GRES requirements
+ * IN sock_gres_list - available GRES in a set of nodes, data structure built
+ *		       by gres_plugin_job_sched_consec()
+ */
+extern bool gres_plugin_job_sched_sufficient(List job_gres_list,
+					     List sock_gres_list);
+
+/*
+ * Given a List of sock_gres_t entries, return a string identifying the
+ * count of each GRES available on this set of nodes
+ * IN sock_gres_list - count of GRES available in this group of nodes
+ * IN job_gres_list - job GRES specification, used only to get GRES name/type
+ * RET xfree the returned string
+ */
+extern char *gres_plugin_job_sched_str(List sock_gres_list, List job_gres_list);
 
 /*
  * Create a (partial) copy of a job's gres state for job binding
@@ -461,7 +566,7 @@ extern int gres_plugin_job_state_validate2(char *cpus_per_tres,
  * NOTE: Only gres_cnt_alloc, node_cnt and gres_bit_alloc are copied
  *	 Job step details are NOT copied.
  */
-List gres_plugin_job_state_dup(List gres_list);
+extern List gres_plugin_job_state_dup(List gres_list);
 
 /*
  * Create a (partial) copy of a job's gres state for a particular node index
@@ -469,7 +574,7 @@ List gres_plugin_job_state_dup(List gres_list);
  * IN node_index - zero-origin index to the node
  * RET The copy or NULL on failure
  */
-List gres_plugin_job_state_extract(List gres_list, int node_index);
+extern List gres_plugin_job_state_extract(List gres_list, int node_index);
 
 /*
  * Pack a job's current gres status, called from slurmctld for save/restore
@@ -498,43 +603,112 @@ extern int gres_plugin_job_state_unpack(List *gres_list, Buf buffer,
 					uint16_t protocol_version);
 
 /*
- * Clear the cpu_bitmap for CPUs which are not usable by this job (i.e. for
- *	CPUs which are already bound to other jobs or lack GRES)
- * IN job_gres_list  - job's gres_list built by gres_plugin_job_state_validate()
- * IN node_gres_list - node's gres_list built by
- *                     gres_plugin_node_config_validate()
- * IN use_total_gres - if set then consider all gres resources as available,
- *		       and none are commited to running jobs
- * IN/OUT cpu_bitmap - Identification of available CPUs (NULL if no restriction)
- * IN cpu_start_bit  - index into cpu_bitmap for this node's first CPU
- * IN cpu_end_bit    - index into cpu_bitmap for this node's last CPU
- * IN node_name      - name of the node (for logging)
+ * Clear the core_bitmap for cores which are not usable by this job (i.e. for
+ *	cores which are already bound to other jobs or lack GRES)
+ * IN job_gres_list   - job's gres_list built by gres_plugin_job_state_validate()
+ * IN node_gres_list  - node's gres_list built by
+ *                      gres_plugin_node_config_validate()
+ * IN use_total_gres  - if set then consider all GRES resources as available,
+ *		        and none are commited to running jobs
+ * IN/OUT core_bitmap - Identification of available cores (NULL if no restriction)
+ * IN core_start_bit  - index into core_bitmap for this node's first cores
+ * IN core_end_bit    - index into core_bitmap for this node's last cores
  */
 extern void gres_plugin_job_core_filter(List job_gres_list, List node_gres_list,
 					bool use_total_gres,
-					bitstr_t *cpu_bitmap,
-					int cpu_start_bit, int cpu_end_bit,
+					bitstr_t *core_bitmap,
+					int core_start_bit, int core_end_bit,
 					char *node_name);
 
 /*
- * Determine how many CPUs on the node can be used by this job
+ * Determine how many cores on the node can be used by this job
  * IN job_gres_list  - job's gres_list built by gres_plugin_job_state_validate()
- * IN node_gres_list - node's gres_list built by
- *                     gres_plugin_node_config_validate()
+ * IN node_gres_list - node's gres_list built by gres_plugin_node_config_validate()
  * IN use_total_gres - if set then consider all gres resources as available,
  *		       and none are commited to running jobs
- * IN cpu_bitmap     - Identification of available CPUs (NULL if no restriction)
- * IN cpu_start_bit  - index into cpu_bitmap for this node's first CPU
- * IN cpu_end_bit    - index into cpu_bitmap for this node's last CPU
+ * IN core_bitmap    - Identification of available cores (NULL if no restriction)
+ * IN core_start_bit - index into core_bitmap for this node's first core
+ * IN core_end_bit   - index into core_bitmap for this node's last core
  * IN job_id         - job's ID (for logging)
  * IN node_name      - name of the node (for logging)
  * RET: NO_VAL    - All cores on node are available
  *      otherwise - Count of available cores
  */
 extern uint32_t gres_plugin_job_test(List job_gres_list, List node_gres_list,
-				     bool use_total_gres, bitstr_t *cpu_bitmap,
-				     int cpu_start_bit, int cpu_end_bit,
+				     bool use_total_gres, bitstr_t *core_bitmap,
+				     int core_start_bit, int core_end_bit,
 				     uint32_t job_id, char *node_name);
+
+/*
+ * Determine how many cores on each socket of a node can be used by this job
+ * IN job_gres_list   - job's gres_list built by gres_plugin_job_state_validate()
+ * IN node_gres_list  - node's gres_list built by gres_plugin_node_config_validate()
+ * IN use_total_gres  - if set then consider all gres resources as available,
+ *		        and none are commited to running jobs
+ * IN/OUT core_bitmap - Identification of available cores on this node
+ * IN sockets         - Count of sockets on the node
+ * IN cores_per_sock  - Count of cores per socket on this node
+ * IN job_id          - job's ID (for logging)
+ * IN node_name       - name of the node (for logging)
+ * IN enforce_binding - if true then only use GRES with direct access to cores
+ * IN s_p_n           - Expected sockets_per_node (NO_VAL if not limited)
+ * RET: List of sock_gres_t entries identifying what resources are available on
+ *	each core. Returns NULL if none available. Call FREE_NULL_LIST() to
+ *	release memory.
+ */
+extern List gres_plugin_job_test2(List job_gres_list, List node_gres_list,
+				  bool use_total_gres, bitstr_t *core_bitmap,
+				  uint16_t sockets, uint16_t cores_per_sock,
+				  uint32_t job_id, char *node_name,
+				  bool enforce_binding, uint32_t s_p_n);
+
+/*
+ * Determine how many GRES can be used on this node given the available cores
+ * IN sock_gres_list  - list of sock_gres_t entries built by gres_plugin_job_test2()
+ * IN avail_mem       - memory available for the job
+ * IN max_cpus        - maximum CPUs available on this node (limited by
+ *                      specialized cores and partition CPUs-per-node)
+ * IN enforce_binding - GRES must be co-allocated with cores
+ * IN core_bitmap     - Identification of available cores on this node
+ * IN sockets         - Count of sockets on the node
+ * IN cores_per_sock  - Count of cores per socket on this node
+ * IN cpus_per_core   - Count of CPUs per core on this node
+ * OUT avail_gpus     - Count of available GPUs on this node
+ * OUT near_gpus      - Count of GPUs available on sockets with available CPUs
+ * RET - 0 if job can use this node, -1 otherwise (some GRES limit prevents use)
+ */
+extern int gres_plugin_job_core_filter2(List sock_gres_list, uint64_t avail_mem,
+					uint16_t max_cpus,
+					bool enforce_binding,
+					bitstr_t *core_bitmap,
+					uint16_t sockets,
+					uint16_t cores_per_sock,
+					uint16_t cpus_per_core,
+					uint16_t *avail_gpus,
+					uint16_t *near_gpus);
+
+/*
+ * Determine how many tasks can be started on a given node and which sockets
+ * are required
+ * IN sock_gres_list - list of sock_gres_t entries built by gres_plugin_job_test2()
+ * IN req_cores - set non-zero if core is required, UPDATED
+ * IN avail_cores_per_sock - Count of available cores on each socket
+ * IN sockets - Count of sockets on the node
+ * IN avail_cpus - Count of available CPUs on the node
+ * IN min_tasks_this_node - Minimum count of tasks that can be started on this
+ *                          node, UPDATED
+ * IN max_tasks_this_node - Maximum count of tasks that can be started on this
+ *                          node, UPDATED
+ * IN enforce_binding - GRES must be co-allocated with cores
+ */
+extern void gres_plugin_job_core_filter3(List sock_gres_list,
+					 uint16_t *req_cores,
+					 uint16_t *avail_cores_per_sock,
+					 uint16_t sockets,
+					 uint16_t avail_cpus,
+					 int *min_tasks_this_node,
+					 int *max_tasks_this_node,
+					 bool enforce_binding);
 
 /*
  * Allocate resource to a job and update node and job gres information
@@ -543,7 +717,6 @@ extern uint32_t gres_plugin_job_test(List job_gres_list, List node_gres_list,
  *		       gres_plugin_node_config_validate()
  * IN node_cnt    - total number of nodes originally allocated to the job
  * IN node_offset - zero-origin index to the node of interest
- * IN cpu_cnt     - number of CPUs allocated to this job on this node
  * IN job_id      - job's ID (for logging)
  * IN node_name   - name of the node (for logging)
  * IN core_bitmap - cores allocated to this job on this node (NULL if not
@@ -552,8 +725,8 @@ extern uint32_t gres_plugin_job_test(List job_gres_list, List node_gres_list,
  */
 extern int gres_plugin_job_alloc(List job_gres_list, List node_gres_list,
 				 int node_cnt, int node_offset,
-				 uint32_t cpu_cnt, uint32_t job_id,
-				 char *node_name, bitstr_t *core_bitmap);
+				 uint32_t job_id, char *node_name,
+				 bitstr_t *core_bitmap);
 
 /* Clear any vestigial job gres state. This may be needed on job requeue. */
 extern void gres_plugin_job_clear(List job_gres_list);
@@ -596,6 +769,17 @@ extern void gres_plugin_job_merge(List from_job_gres_list,
 extern void gres_plugin_job_set_env(char ***job_env_ptr, List job_gres_list,
 				    int node_inx);
 
+/*
+ * Set job default parameters in a given element of a list
+ * IN job_gres_list - job's gres_list built by gres_plugin_job_state_validate()
+ * IN gres_name - name of gres, apply defaults to all elements (e.g. updates to
+ *		  gres_name="gpu" would apply to "gpu:tesla", "gpu:volta", etc.)
+ * IN cpu_per_gpu - value to set as default
+ * IN mem_per_gpu - value to set as default
+ */
+extern void gres_plugin_job_set_defs(List job_gres_list, char *gres_name,
+				     uint64_t cpu_per_gpu,
+				     uint64_t mem_per_gpu);
 
 /*
  * Extract from the job record's gres_list the count of allocated resources of
@@ -617,13 +801,18 @@ extern void gres_plugin_job_state_log(List gres_list, uint32_t job_id);
 
 /*
  * Given a step's requested gres configuration, validate it and build gres list
- * IN req_config - step request's gres input string
+ * IN *tres* - step's request's gres input string
  * OUT step_gres_list - List of Gres records for this step to track usage
  * IN job_gres_list - List of Gres records for this job
  * IN job_id, step_id - ID of the step being allocated.
  * RET SLURM_SUCCESS or ESLURM_INVALID_GRES
  */
-extern int gres_plugin_step_state_validate(char *req_config,
+extern int gres_plugin_step_state_validate(char *cpus_per_tres,
+					   char *tres_per_step,
+					   char *tres_per_node,
+					   char *tres_per_socket,
+					   char *tres_per_task,
+					   char *mem_per_tres,
 					   List *step_gres_list,
 					   List job_gres_list, uint32_t job_id,
 					   uint32_t step_id);
@@ -699,14 +888,15 @@ extern void gres_plugin_step_state_log(List gres_list, uint32_t job_id,
 				       uint32_t step_id);
 
 /*
- * Determine how many CPUs of a job's allocation can be allocated to a job
+ * Determine how many cores of a job's allocation can be allocated to a job
  *	on a specific node
  * IN job_gres_list - a running job's gres info
  * IN/OUT step_gres_list - a pending job step's gres requirements
  * IN node_offset - index into the job's node allocation
  * IN ignore_alloc - if set ignore resources already allocated to running steps
  * IN job_id, step_id - ID of the step being allocated.
- * RET Count of available CPUs on this node, NO_VAL if no limit
+ * RET Count of available cores on this node (sort of):
+ *     NO_VAL64 if no limit or 0 if node is not usable
  */
 extern uint64_t gres_plugin_step_test(List step_gres_list, List job_gres_list,
 				      int node_offset, bool ignore_alloc,
@@ -718,13 +908,12 @@ extern uint64_t gres_plugin_step_test(List step_gres_list, List job_gres_list,
  *		gres_plugin_step_state_validate()
  * IN job_gres_list - job's gres_list built by gres_plugin_job_state_validate()
  * IN node_offset - job's zero-origin index to the node of interest
- * IN cpu_cnt - number of CPUs allocated to this job on this node
  * IN job_id, step_id - ID of the step being allocated.
  * RET SLURM_SUCCESS or error code
  */
 extern int gres_plugin_step_alloc(List step_gres_list, List job_gres_list,
-				  int node_offset, int cpu_cnt,
-				  uint32_t job_id, uint32_t step_id);
+				  int node_offset, uint32_t job_id,
+				  uint32_t step_id);
 
 /*
  * Deallocate resource to a step and update job and step gres information
@@ -736,6 +925,14 @@ extern int gres_plugin_step_alloc(List step_gres_list, List job_gres_list,
  */
 extern int gres_plugin_step_dealloc(List step_gres_list, List job_gres_list,
 				    uint32_t job_id, uint32_t step_id);
+
+/*
+ * Build a string containing the GRES details for a given node and socket
+ * sock_gres_list IN - List of sock_gres_t entries
+ * sock_inx IN - zero-origin socket for which information is to be returned
+ * RET string, must call xfree() to release memory
+ */
+extern char *gres_plugin_sock_str(List sock_gres_list, int sock_inx);
 
 /*
  * Map a given GRES type ID back to a GRES type name.

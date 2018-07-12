@@ -1116,10 +1116,11 @@ extern int as_mysql_step_start(mysql_conn_t *mysql_conn,
 			node_inx = bit_fmt(temp_bit, sizeof(temp_bit),
 					   step_ptr->step_node_bitmap);
 		}
-		/* We overload gres with the node name of where the
-		   script was running.
-		*/
-		snprintf(node_list, BUFFER_SIZE, "%s", step_ptr->gres);
+		/*
+		 * We overload tres_per_node with the node name of where the
+		 * script was running.
+		 */
+		snprintf(node_list, BUFFER_SIZE, "%s", step_ptr->tres_per_node);
 		nodes = tasks = 1;
 		if (!step_ptr->tres_alloc_str)
 			xstrfmtcat(step_ptr->tres_alloc_str,
@@ -1128,7 +1129,7 @@ extern int as_mysql_step_start(mysql_conn_t *mysql_conn,
 				   TRES_CPU, 1,
 				   TRES_NODE, 1);
 	} else {
-		char *ionodes = NULL, *temp_nodes = NULL;
+		char *temp_nodes = NULL;
 
 		if (step_ptr->step_node_bitmap) {
 			node_inx = bit_fmt(temp_bit, sizeof(temp_bit),
@@ -1157,26 +1158,12 @@ extern int as_mysql_step_start(mysql_conn_t *mysql_conn,
 			temp_nodes = step_ptr->job_ptr->nodes;
 		} else {
 			tasks = step_ptr->step_layout->task_cnt;
-#ifdef HAVE_BGQ
-			select_g_select_jobinfo_get(step_ptr->select_jobinfo,
-						    SELECT_JOBDATA_NODE_CNT,
-						    &nodes);
-#else
 			nodes = step_ptr->step_layout->node_cnt;
-#endif
 			task_dist = step_ptr->step_layout->task_dist;
 			temp_nodes = step_ptr->step_layout->node_list;
 		}
 
-		select_g_select_jobinfo_get(step_ptr->select_jobinfo,
-					    SELECT_JOBDATA_IONODES,
-					    &ionodes);
-		if (ionodes) {
-			snprintf(node_list, BUFFER_SIZE, "%s[%s]",
-				 temp_nodes, ionodes);
-			xfree(ionodes);
-		} else
-			snprintf(node_list, BUFFER_SIZE, "%s", temp_nodes);
+		snprintf(node_list, BUFFER_SIZE, "%s", temp_nodes);
 	}
 
 	if (!step_ptr->job_ptr->db_index) {

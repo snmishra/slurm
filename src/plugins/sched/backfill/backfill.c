@@ -232,8 +232,9 @@ static void _dump_job_sched(struct job_record *job_ptr, time_t end_time,
 	slurm_make_time_str(&job_ptr->start_time, begin_buf, sizeof(begin_buf));
 	slurm_make_time_str(&end_time, end_buf, sizeof(end_buf));
 	node_list = bitmap2node_name(avail_bitmap);
-	info("Job %u to start at %s, end at %s on %s",
-	     job_ptr->job_id, begin_buf, end_buf, node_list);
+	info("Job %u to start at %s, end at %s on nodes %s in partition %s",
+	     job_ptr->job_id, begin_buf, end_buf, node_list,
+	     job_ptr->part_ptr->name);
 	xfree(node_list);
 }
 
@@ -1121,7 +1122,7 @@ static int _attempt_backfill(void)
 	 * Needs to be done with the node-state lock taken.
 	 */
 	START_TIMER;
-	if (select_g_update_block(NULL)) {
+	if (select_g_update_basil()) {
 		debug4("backfill: not scheduling due to ALPS");
 		return SLURM_SUCCESS;
 	}
@@ -1230,7 +1231,8 @@ static int _attempt_backfill(void)
 
 	sort_job_queue(job_queue);
 	while (1) {
-		uint32_t bf_job_id, bf_array_task_id, bf_job_priority;
+		uint32_t bf_job_id, bf_array_task_id, bf_job_priority,
+			prio_reserve;
 
 		job_queue_rec = (job_queue_rec_t *) list_pop(job_queue);
 		if (!job_queue_rec) {
@@ -1396,9 +1398,17 @@ static int _attempt_backfill(void)
 			continue;
 		}
 
+		if (!(prio_reserve = acct_policy_get_prio_thresh(
+			      job_ptr, false)))
+			prio_reserve = bf_min_prio_reserve;
+
+		if (prio_reserve && (debug_flags & DEBUG_FLAG_BACKFILL))
+			info("backfill: %u has a prio_reserve of %u",
+			     job_ptr->job_id, prio_reserve);
+
 		job_no_reserve = 0;
-		if (bf_min_prio_reserve &&
-		    (job_ptr->priority < bf_min_prio_reserve)) {
+		if (prio_reserve &&
+		    (job_ptr->priority < prio_reserve)) {
 			job_no_reserve = TEST_NOW_ONLY;
 		} else if (bf_min_age_reserve && job_ptr->details->begin_time) {
 			pend_time = difftime(time(NULL),
@@ -2057,6 +2067,11 @@ skip_start:
 				acct_policy_alter_job(job_ptr, comp_time_limit);
 				job_ptr->time_limit = comp_time_limit;
 				job_ptr->limit_set.time = 1;
+			} else if (deadline_time_limit &&
+				   (rc == SLURM_SUCCESS)) {
+				acct_policy_alter_job(job_ptr, comp_time_limit);
+				job_ptr->time_limit = comp_time_limit;
+				reset_time = true;
 			} else {
 				acct_policy_alter_job(job_ptr, orig_time_limit);
 				_set_job_time_limit(job_ptr, orig_time_limit);
@@ -2455,19 +2470,7 @@ static int _start_job(struct job_record *job_ptr, bitstr_t *resv_bitmap)
 		power_g_job_start(job_ptr);
 		if (job_ptr->batch_flag == 0)
 			srun_allocate(job_ptr->job_id);
-		else if (
-#ifdef HAVE_BG
-			/*
-			 * On a bluegene system we need to run the prolog
-			 * while the job is CONFIGURING so this can't work
-			 * off the CONFIGURING flag as done elsewhere.
-			 */
-			!job_ptr->details ||
-			!job_ptr->details->prolog_running
-#else
-			!IS_JOB_CONFIGURING(job_ptr)
-#endif
-			)
+		else if (!IS_JOB_CONFIGURING(job_ptr))
 			launch_job(job_ptr);
 		slurmctld_diag_stats.backfilled_jobs++;
 		slurmctld_diag_stats.last_backfilled_jobs++;

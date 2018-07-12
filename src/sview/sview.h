@@ -57,7 +57,6 @@
 #include "src/common/uid.h"
 #include "src/common/xstring.h"
 
-#include "src/plugins/select/bluegene/bg_enums.h"
 #include "gthread_helper.h"
 
 /* getopt_long options, integers but not characters */
@@ -321,15 +320,12 @@ extern int global_row_count;
 extern gint last_event_x;
 extern gint last_event_y;
 extern GdkCursor* in_process_cursor;
-extern int cpus_per_node;
-extern int g_node_scaling;
 extern char *sview_colors[];
 extern int sview_colors_cnt;
 extern int cluster_dims;
 extern uint32_t cluster_flags;
 extern List cluster_list;
 extern char *orig_cluster_name;
-extern block_info_msg_t *g_block_info_ptr;
 extern front_end_info_msg_t *g_front_end_info_ptr;
 extern job_info_msg_t *g_job_info_ptr;
 extern node_info_msg_t *g_node_info_ptr;

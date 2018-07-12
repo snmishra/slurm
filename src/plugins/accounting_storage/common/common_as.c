@@ -212,6 +212,10 @@ extern int addto_update_list(List update_list, slurmdb_update_type_t type,
 
 		if (assoc->max_jobs == NO_VAL)
 			assoc->max_jobs = INFINITE;
+		if (assoc->max_jobs_accrue == NO_VAL)
+			assoc->max_jobs_accrue = INFINITE;
+		if (assoc->min_prio_thresh == NO_VAL)
+			assoc->min_prio_thresh = INFINITE;
 		if (assoc->max_submit_jobs == NO_VAL)
 			assoc->max_submit_jobs = INFINITE;
 		if (assoc->max_wall_pj == NO_VAL)
@@ -431,7 +435,6 @@ extern int set_usage_information(char **usage_table,
 	}
 	end_tm.tm_sec = 0;
 	end_tm.tm_min = 0;
-	end_tm.tm_isdst = -1;
 	end = slurm_mktime(&end_tm);
 
 	if (!start) {
@@ -451,7 +454,6 @@ extern int set_usage_information(char **usage_table,
 	}
 	start_tm.tm_sec = 0;
 	start_tm.tm_min = 0;
-	start_tm.tm_isdst = -1;
 	start = slurm_mktime(&start_tm);
 
 	if (end-start < 3600) {
@@ -677,7 +679,6 @@ extern time_t archive_setup_end_time(time_t last_submit, uint32_t purge)
 		return 0;
 	}
 
-	time_tm.tm_isdst = -1;
 	return (slurm_mktime(&time_tm) - 1);
 }
 

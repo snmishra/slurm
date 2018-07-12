@@ -55,6 +55,33 @@ documents those changes that are of interest to users and administrators.
     return the node weight to be used for a compute node that requires reboot
     for use (e.g. to change the NUMA mode of a KNL node).
  -- Add NodeRebootWeight parameter to knl.conf configuration file.
+ -- Fix insecure handling of job requested gid field. CVE-2018-10995.
+ -- Fix srun to return highest signal of any task.
+ -- Completely remove "gres" field from step record. Use "tres_per_node",
+    "tres_per_socket", etc.
+ -- Add "Links" parameter to gres.conf configuration file.
+ -- Force slurm_mktime() to set tm_isdst to -1 so anyone using the function
+    doesn't forget to set it.
+ -- burst_buffer.conf - Add SetExecHost flag to enable burst buffer access
+    from the login node for interactive jobs.
+ -- Append ", with requeued tasks" to job array "end" emails if any tasks in the
+    array were requeued. This is a hint to use "sacct --duplicates" to see the
+    whole picture of the array job.
+ -- Add ResumeFailProgram slurm.conf option to specify a program that is called
+    when a node fails to respond by ResumeTimeout.
+ -- Add new job pending reason of "ReqNodeNotAvail, reserved for maintenance".
+ -- Remove AdminComment += syntax from 'scontrol update job'.
+ -- sched/backfill: Reset job time limit if needed for deadline scheduling.
+ -- For heterogeneous job component with required nodes, explicitly exclude
+    those nodes from all other job components.
+ -- Add name of partition used to output of srun --test-only output (valuable
+    for jobs submitted to multiple partitions).
+ -- If MailProg is not configured and "/bin/mail" (the default) does not exist,
+    but "/usr/bin/mail" does exist then use "/usr/bin/mail" as a default value.
+ -- sdiag output now reports outgoing slurmctld message queue contents.
+ -- Fix issue in performance when reading slurm conf having nodes with features.
+ -- Make it so the slurmdbd's pid file gets created before initing
+    the database.
 
 * Changes in Slurm 18.08.0pre1
 ==============================
@@ -134,11 +161,60 @@ documents those changes that are of interest to users and administrators.
     node_features_p_changeable_feature in node_features plugin.
  -- Add Slurm configuration file check logic using "slurmctld -t" command.
 
+* Changes in Slurm 17.11.8
+==========================
+ -- Fix incomplete RESPONSE_[RESOURCE|JOB_PACK]_ALLOCATION building path.
+ -- Do not allocate nodes that were marked down due to the node not responding
+    by ResumeTimeout.
+ -- task/cray plugin - search for "mems" cgroup information in the file
+    "cpuset.mems" then fall back to the file "mems".
+ -- Fix ipmi profile debug uninitialized variable.
+ -- Improve detection of Lua package on older RHEL distributions.
+ -- PMIx: fixed the direct connect inline msg sending.
+ -- MYSQL: Fix issue not handling all fields when loading an archive dump.
+ -- Allow a job_submit plugin to change the admin_comment field during
+    job_submit_plugin_modify().
+ -- job_submit/lua - fix access into reservation table.
+ -- MySQL - Prevent deadlock caused by archive logic locking reads.
+ -- Don't enforce MaxQueryTimeRange when requesting specific jobs.
+ -- Modify --test-only logic to properly support jobs submitted to more than
+    one partition.
+ -- Prevent slurmctld from abort when attempting to set non-existing
+    qos as def_qos_id.
+ -- Add new job dependency type of "afterburstbuffer". The pending job will be
+    delayed until the first job completes execution and it's burst buffer
+    stage-out is completed.
+ -- Reorder proctrack/task plugin load in the slurmstepd to match that of slurmd
+    and avoid race condition calling task before proctrack can introduce.
+ -- Prevent reboot of a busy KNL node when requesting inactive features.
+ -- Revert to previous behavior when requesting memory per cpu/node introduced
+    in 17.11.7.
+ -- Fix to reinitialize previously adjusted job members to their original value
+    when validating the job memory in multi-partition requests.
+ -- Fix _step_signal() from always returning SLURM_SUCCESS.
+ -- Combine active and available node feature change logs on one line rather
+    than one line per node for performance reasons.
+ -- Prevent occasionally leaking freezer cgroups.
+ -- Fix potential segfault when closing the mpi/pmi2 plugin.
+ -- Fix issues with --exclusive=[user|mcs] to work correctly
+    with preemption or when job requests a specific list of hosts.
+
 * Changes in Slurm 17.11.7
 ==========================
  -- Fix for possible slurmctld daemon abort with NULL pointer.
  -- Fix different issues when requesting memory per cpu/node.
  -- PMIx - override default paths at configure time if --with-pmix is used.
+ -- Have sprio display jobs before eligible time when
+    PriorityFlags=ACCRUE_ALWAYS is set.
+ -- Make sure locks are always in place when calling _post_qos_list().
+ -- Notify srun and ctld when unkillable stepd exits.
+ -- Fix slurmstepd deadlock in stepd cleanup caused by race condition in
+    the jobacct_gather fini() interfaces introduced in 17.11.6.
+ -- Fix slurmstepd deadlock in PMIx startup.
+ -- task/cgroup - fix invalid free() if the hwloc library does not return a
+    string as expected.
+ -- Fix insecure handling of job requested gid field. CVE-2018-10995.
+ -- Add --without x11 option to rpmbuild in slurm.spec.
 
 * Changes in Slurm 17.11.6
 ==========================
@@ -446,8 +522,8 @@ documents those changes that are of interest to users and administrators.
  -- Prevent possible double-xfree on a buffer in stepd_completion.
  -- Fix for record job state on successful allocation but failed reply message.
  -- Fill in the user_name field for batch jobs if not sent by the slurmctld.
-    (Which is the default behavior if PrologFlags=send_gids is not enabled.)
-    This prevents job launch problems for sites using UsePAM=1.
+    (Which is the default behavior if LaunchParameters=send_gids is not
+    enabled.). This prevents job launch problems for sites using UsePAM=1.
  -- Handle syncing federated jobs that ran on non-origin clusters and were
     cancelled while the origin cluster was down.
  -- Fix accessing variable outside of lock.
@@ -884,8 +960,12 @@ documents those changes that are of interest to users and administrators.
     '--quit-on-interrupt' to '--qos'.
  -- Change sched_min_interval default from 0 to 2 microseconds.
 
+* Changes in Slurm 17.02.12
+==========================
+
 * Changes in Slurm 17.02.11
 ==========================
+ -- Fix insecure handling of user_name and gid fields. CVE-2018-10995.
 
 * Changes in Slurm 17.02.10
 ==========================

@@ -272,16 +272,7 @@ typedef struct slurm_options {
 	char *nodelist;			/* --nodelist=node1,node2,...	*/
 	char *exc_nodes;		/* --exclude=node1,node2,...	*/
 
-	/* BLUEGENE SPECIFIC */
-	uint16_t geometry[HIGHEST_DIMENSIONS];/* --geometry		*/
 	bool reboot;			/* --reboot			*/
-	bool no_rotate;			/* --no_rotate			*/
-	uint16_t conn_type[HIGHEST_DIMENSIONS];/* --conn-type		*/
-	char *blrtsimage;		/* BlrtsImage for block		*/
-	char *linuximage;		/* LinuxImage for block		*/
-	char *mloaderimage;		/* mloaderImage for block	*/
-	char *ramdiskimage;		/* RamDiskImage for block	*/
-	/*********************/
 
 	time_t begin;			/* --begin			*/
 	char *extra;			/* unused			*/
@@ -304,6 +295,8 @@ typedef struct slurm_options {
 	char *mcs_label;		/* mcs label			*/
 	time_t deadline;		/* ---deadline			*/
 	uint32_t delay_boot;		/* --delay-boot			*/
+	char *tres_bind;		/* derived from gpu_bind	*/
+	char *tres_freq;		/* derived from gpu_freq	*/
 	uint16_t x11;			/* --x11			*/
 	char *x11_magic_cookie;		/* cookie retrieved from xauth	*/
 	/* no x11_target_host here, alloc_host will be equivalent */

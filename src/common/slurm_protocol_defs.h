@@ -120,8 +120,6 @@
 	((_X->node_state & NODE_STATE_BASE) == NODE_STATE_IDLE)
 #define IS_NODE_ALLOCATED(_X)		\
 	((_X->node_state & NODE_STATE_BASE) == NODE_STATE_ALLOCATED)
-#define IS_NODE_ERROR(_X)		\
-	((_X->node_state & NODE_STATE_BASE) == NODE_STATE_ERROR)
 #define IS_NODE_MIXED(_X)		\
 	((_X->node_state & NODE_STATE_BASE) == NODE_STATE_MIXED)
 #define IS_NODE_FUTURE(_X)		\
@@ -134,7 +132,7 @@
 	(_X->node_state & NODE_STATE_DRAIN)
 #define IS_NODE_DRAINING(_X)		\
 	((_X->node_state & NODE_STATE_DRAIN) \
-	 && (IS_NODE_ALLOCATED(_X) || IS_NODE_ERROR(_X) || IS_NODE_MIXED(_X)))
+	 && (IS_NODE_ALLOCATED(_X) || IS_NODE_MIXED(_X)))
 #define IS_NODE_DRAINED(_X)		\
 	(IS_NODE_DRAIN(_X) && !IS_NODE_DRAINING(_X))
 #define IS_NODE_COMPLETING(_X)	\
@@ -233,8 +231,10 @@ typedef enum {
 	RESPONSE_ACCOUNTING_INFO,
 	REQUEST_JOB_ID,
 	RESPONSE_JOB_ID,
-	REQUEST_BLOCK_INFO,
-	RESPONSE_BLOCK_INFO,
+	DEFUNCT_REQUEST_BLOCK_INFO,	/* DEFUNCT, CAN BE REUSED 2
+					 * VERSIONS AFTER 18.08 */
+	DEFUNCT_RESPONSE_BLOCK_INFO,	/* DEFUNCT, CAN BE REUSED 2
+					 * VERSIONS AFTER 18.08 */
 	REQUEST_TRIGGER_SET,
 	REQUEST_TRIGGER_GET,
 	REQUEST_TRIGGER_CLEAR,
@@ -285,8 +285,9 @@ typedef enum {
 	RESPONSE_CREATE_RESERVATION,
 	REQUEST_DELETE_RESERVATION,
 	REQUEST_UPDATE_RESERVATION,
-	REQUEST_UPDATE_BLOCK,		/* 3010 */
-	REQUEST_UPDATE_FRONT_END,
+	DEFUNCT_REQUEST_UPDATE_BLOCK,		/* DEFUNCT, CAN BE REUSED 2
+						   VERSIONS AFTER 18.08 */
+	REQUEST_UPDATE_FRONT_END,		/* 3011 */
 	REQUEST_UPDATE_LAYOUT,
 	REQUEST_UPDATE_POWERCAP,
 
@@ -399,7 +400,7 @@ typedef enum {
 	SRUN_EXEC,
 	SRUN_STEP_MISSING,
 	SRUN_REQUEST_SUSPEND,
-	SRUN_STEP_SIGNAL,	/* for launch plugins aprun, poe and runjob,
+	SRUN_STEP_SIGNAL,	/* for launch plugins aprun and poe,
 				 * srun forwards signal to the launch command */
 
 	PMI_KVS_PUT_REQ = 7201,
@@ -479,7 +480,7 @@ typedef struct slurm_msg {
 				 buffer starts. */
 	Buf buffer; /* DON't PACK! ptr to buffer that msg was unpacked from. */
 	slurm_persist_conn_t *conn; /* DON'T PACK OR FREE! this is here to
-				     * distinquish a persistent connection from
+				     * distinguish a persistent connection from
 				     * a normal connection it should be filled
 				     * in with the connection before sending the
 				     * message so that it is handled correctly.
@@ -629,11 +630,6 @@ typedef struct front_end_info_request_msg {
 	time_t last_update;
 } front_end_info_request_msg_t;
 
-typedef struct block_info_request_msg {
-	time_t last_update;
-	uint16_t show_flags;
-} block_info_request_msg_t;
-
 typedef struct part_info_request_msg {
 	time_t last_update;
 	uint16_t show_flags;
@@ -734,7 +730,6 @@ typedef struct job_step_specs {
 	char *cpus_per_tres;	/* semicolon delimited list of TRES=# values */
 	uint16_t exclusive;	/* 1 if CPUs not shared with other steps */
 	char *features;		/* required node features, default NONE */
-	char *gres;		/* generic resources required */
 	char *host;		/* host to contact initiating srun */
 	uint16_t immediate;	/* 1 if allocate to run or fail immediately,
 				 * 0 if to be queued awaiting resources */
@@ -766,7 +761,7 @@ typedef struct job_step_specs {
 				 * partition limit */
 	char *tres_bind;	/* Task to TRES binding directives */
 	char *tres_freq;	/* TRES frequency directives */
-	char *tres_per_job;	/* semicolon delimited list of TRES=# values */
+	char *tres_per_step;	/* semicolon delimited list of TRES=# values */
 	char *tres_per_node;	/* semicolon delimited list of TRES=# values */
 	char *tres_per_socket;	/* semicolon delimited list of TRES=# values */
 	char *tres_per_task;	/* semicolon delimited list of TRES=# values */
@@ -834,6 +829,8 @@ typedef struct launch_tasks_request_msg {
 	uint16_t mem_bind_type;	/* --mem-bind=                    */
 	char     *mem_bind;	/* binding map for tasks to memory        */
 	uint16_t accel_bind_type; /* --accel-bind= */
+	char     *tres_bind;	/* task binding to TRES (e.g. GPUs) */
+	char     *tres_freq;	/* frequency/power for TRES (e.g. GPUs) */
 	uint16_t  num_resp_port;
 	uint16_t  *resp_port;   /* array of available response ports      */
 
@@ -1020,8 +1017,13 @@ typedef struct prolog_launch_msg {
 
 typedef struct batch_job_launch_msg {
 	char *account;          /* account under which the job is running */
+	char *acctg_freq;	/* accounting polling intervals	*/
+	char *alias_list;	/* node name/address/hostnamne aliases */
 	uint32_t array_job_id;	/* job array master job ID */
 	uint32_t array_task_id;	/* job array ID or NO_VAL */
+	uint32_t cpu_freq_min;  /* Minimum cpu frequency  */
+	uint32_t cpu_freq_max;  /* Maximum cpu frequency  */
+	uint32_t cpu_freq_gov;  /* cpu frequency governor */
 	uint32_t job_id;
 	uint32_t step_id;
 	uint32_t uid;
@@ -1045,7 +1047,6 @@ typedef struct batch_job_launch_msg {
 	uint32_t *cpu_count_reps;/* how many nodes have same cpu count */
 	uint16_t cpus_per_task;	/* number of CPUs requested per task */
 	uint16_t job_core_spec;	/* Count of specialized cores */
-	char *alias_list;	/* node name/address/hostnamne aliases */
 	char *nodes;		/* list of nodes allocated to job_step */
 	uint32_t profile;       /* what to profile for the batch step */
 	char *script;		/* the actual job script, default NONE */
@@ -1069,15 +1070,14 @@ typedef struct batch_job_launch_msg {
 	uint64_t pn_min_memory;  /* minimum real memory per node OR
 				  * real memory per CPU | MEM_PER_CPU,
 				  * default=0 (no limit) */
-	char *acctg_freq;	/* accounting polling intervals	*/
-	uint32_t cpu_freq_min;  /* Minimum cpu frequency  */
-	uint32_t cpu_freq_max;  /* Maximum cpu frequency  */
-	uint32_t cpu_freq_gov;  /* cpu frequency governor */
 	uint64_t job_mem;	/* memory limit for job		*/
 	uint16_t restart_cnt;	/* batch job restart count	*/
+	char *resv_name;        /* job's reservation */
 	char **spank_job_env;	/* SPANK job environment variables */
 	uint32_t spank_job_env_size;	/* size of spank_job_env */
-	char *resv_name;        /* job's reservation */
+	char *tres_bind;	/* task binding to TRES (e.g. GPUs),
+				 * included for possible future use */
+	char *tres_freq;	/* frequency/power for TRES (e.g. GPUs) */
 } batch_job_launch_msg_t;
 
 typedef struct job_id_request_msg {
@@ -1168,7 +1168,7 @@ typedef struct multi_core_data {
 	uint16_t cores_per_socket;	/* cores per cpu required by job */
 	uint16_t threads_per_core;	/* threads per core required by job */
 
-	uint16_t ntasks_per_board;  /* number of tasks to invoke on each board*/
+	uint16_t ntasks_per_board;  /* number of tasks to invoke on each board */
 	uint16_t ntasks_per_socket; /* number of tasks to invoke on each socket */
 	uint16_t ntasks_per_core;   /* number of tasks to invoke on each core */
 	uint16_t plane_size;        /* plane size when task_dist = SLURM_DIST_PLANE */
@@ -1488,12 +1488,6 @@ extern void slurm_free_file_bcast_msg(file_bcast_msg_t *msg);
 extern void slurm_free_step_complete_msg(step_complete_msg_t *msg);
 extern void slurm_free_job_step_stat(void *object);
 extern void slurm_free_job_step_pids(void *object);
-extern void slurm_free_block_job_info(void *object);
-extern void slurm_free_block_info_members(block_info_t *block_info);
-extern void slurm_free_block_info(block_info_t *block_info);
-extern void slurm_free_block_info_msg(block_info_msg_t *block_info_msg);
-extern void slurm_free_block_info_request_msg(
-		block_info_request_msg_t *msg);
 extern void slurm_free_acct_gather_node_resp_msg(
 	acct_gather_node_resp_msg_t *msg);
 extern void slurm_free_acct_gather_energy_req_msg(
@@ -1549,11 +1543,7 @@ extern char    *power_flags_str(uint16_t power_flags);
 extern void  private_data_string(uint16_t private_data, char *str, int str_len);
 extern void  accounting_enforce_string(uint16_t enforce,
 				       char *str, int str_len);
-extern char *conn_type_string(enum connection_type conn_type);
-extern char *conn_type_string_full(uint16_t *conn_type);
 extern char *node_use_string(enum node_use_type node_use);
-/* Translate a state enum to a readable string */
-extern char *bg_block_state_string(uint16_t state);
 
 /* Translate a Slurm nodelist to a char * of numbers
  * nid000[36-37] -> 36-37

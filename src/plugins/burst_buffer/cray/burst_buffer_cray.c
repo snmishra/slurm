@@ -344,6 +344,7 @@ static void _purge_bb_files(uint32_t job_id, struct job_record *job_ptr)
 {
 	char *hash_dir = NULL, *job_dir = NULL;
 	char *script_file = NULL, *path_file = NULL, *client_nids_file = NULL;
+	char *exec_host_file = NULL;
 	int hash_inx;
 
 	hash_inx = job_id % 10;
@@ -355,6 +356,10 @@ static void _purge_bb_files(uint32_t job_id, struct job_record *job_ptr)
 	xstrfmtcat(client_nids_file, "%s/client_nids", job_dir);
 	(void) unlink(client_nids_file);
 	xfree(client_nids_file);
+
+	xstrfmtcat(exec_host_file, "%s/exec_host", job_dir);
+	(void) unlink(exec_host_file);
+	xfree(exec_host_file);
 
 	xstrfmtcat(path_file, "%s/pathfile", job_dir);
 	(void) unlink(path_file);
@@ -495,8 +500,10 @@ static bb_job_t *_get_bb_job(struct job_record *job_ptr)
 	tok = strtok_r(bb_specs, "\n", &save_ptr);
 	while (tok) {
 		uint32_t bb_flag = 0;
-		if (tok[0] != '#')
+		if (tok[0] != '#') {
+			tok = strtok_r(NULL, "\n", &save_ptr);
 			continue;
+		}
 		if ((tok[1] == 'B') && (tok[2] == 'B'))
 			bb_flag = BB_FLAG_BB_OP;
 		else if ((tok[1] == 'D') && (tok[2] == 'W'))
@@ -3685,49 +3692,6 @@ extern time_t bb_p_job_get_est_start(struct job_record *job_ptr)
 }
 
 /*
- * Return true if this job is dependent upon another job that uses burst
- * buffers. We need to wait for that first job's stage-out to complete before
- * doing a stage-in for this job.
- */
-static bool _wait_for_dependency(struct job_record *job_ptr)
-{
-	ListIterator iter;
-	struct depend_spec *dep_spec;
-	struct job_record *dep_job_ptr;	/* pointer to dependent job */
-	bool need_to_wait = false;
-	bb_job_t *bb_job;
-
-	if (!job_ptr->details || !job_ptr->details->depend_list)
-		return false;
-
-	iter = list_iterator_create(job_ptr->details->depend_list);
-	while ((dep_spec = (struct depend_spec *) list_next(iter))) {
-		/* Validate the job pointer */
-		if (!dep_spec->job_ptr ||
-		    (dep_spec->job_ptr->job_id != dep_spec->job_id))
-			dep_spec->job_ptr = find_job_record(dep_spec->job_id);
-		if (!dep_spec->job_ptr)
-			continue;
-		dep_job_ptr = dep_spec->job_ptr;
-		if ((dep_job_ptr->burst_buffer == NULL) ||
-		    (dep_job_ptr->burst_buffer[0] == '\0'))
-			continue;	/* No burst buffer use to synchronize */
-		if (!IS_JOB_FINISHED(dep_job_ptr)) {
-			need_to_wait = true;
-			break;
-		}
-		bb_job = bb_job_find(&bb_state, dep_job_ptr->job_id);
-		if (bb_job && (bb_job->state < BB_STATE_STAGED_OUT)) {
-			need_to_wait = true;
-			break;
-		}
-	}
-	list_iterator_destroy(iter);
-
-	return need_to_wait;
-}
-
-/*
  * Attempt to allocate resources and begin file staging for pending jobs.
  */
 extern int bb_p_job_try_stage_in(List job_queue)
@@ -3761,8 +3725,6 @@ extern int bb_p_job_try_stage_in(List job_queue)
 		    ((job_ptr->array_task_id == NO_VAL) ||
 		     (job_ptr->array_task_id == INFINITE)))
 			continue;	/* Can't operate on job array struct */
-		if (_wait_for_dependency(job_ptr))
-			continue;	/* Wait for dependent job stage-out */
 		bb_job = _get_bb_job(job_ptr);
 		if (bb_job == NULL)
 			continue;
@@ -3827,9 +3789,6 @@ extern int bb_p_job_test_stage_in(struct job_record *job_ptr, bool test_only)
 	     (job_ptr->array_task_id == INFINITE)))
 		return -1;	/* Can't operate on job array structure */
 
-	if (_wait_for_dependency(job_ptr))
-		return -1;
-
 	slurm_mutex_lock(&bb_state.bb_mutex);
 	if (bb_state.bb_config.debug_flag) {
 		info("%s: %s: %s test_only:%d",
@@ -3872,15 +3831,15 @@ extern int bb_p_job_test_stage_in(struct job_record *job_ptr, bool test_only)
  */
 extern int bb_p_job_begin(struct job_record *job_ptr)
 {
-	char *client_nodes_file_nid = NULL;
+	char *client_nodes_file_nid = NULL, *exec_host_file = NULL;
 	pre_run_args_t *pre_run_args;
 	char **pre_run_argv = NULL, **script_argv = NULL;
 	char *job_dir = NULL, *path_file, *resp_msg;
-	int hash_inx, rc = SLURM_SUCCESS, status = 0;
+	int arg_inx, hash_inx, rc = SLURM_SUCCESS, status = 0;
 	bb_job_t *bb_job;
 	char jobid_buf[64];
 	uint32_t timeout;
-	bool do_pre_run;
+	bool do_pre_run, set_exec_host;
 	DEF_TIMERS;
 
 	if ((job_ptr->burst_buffer == NULL) ||
@@ -3888,7 +3847,7 @@ extern int bb_p_job_begin(struct job_record *job_ptr)
 		return SLURM_SUCCESS;
 
 	if (((!job_ptr->job_resrcs || !job_ptr->job_resrcs->nodes)) &&
-	    job_ptr->details && (job_ptr->details->min_nodes != 0)) {
+	    (job_ptr->details->min_nodes != 0)) {
 		error("%s: %s lacks node allocation", __func__,
 		      jobid2fmt(job_ptr, jobid_buf, sizeof(jobid_buf)));
 		return SLURM_ERROR;
@@ -3939,12 +3898,23 @@ extern int bb_p_job_begin(struct job_record *job_ptr)
 		bb_job->state = BB_STATE_PRE_RUN;
 	else
 		bb_job->state = BB_STATE_RUNNING;
+	if (bb_state.bb_config.flags & BB_FLAG_SET_EXEC_HOST)
+		set_exec_host = true;
+	else
+		set_exec_host = false;
 	slurm_mutex_unlock(&bb_state.bb_mutex);
 
 	if (job_ptr->job_resrcs && job_ptr->job_resrcs->nodes &&
 	    _write_nid_file(client_nodes_file_nid, job_ptr->job_resrcs->nodes,
 			    job_ptr->job_id)) {
 		xfree(client_nodes_file_nid);
+	}
+	if (set_exec_host && !job_ptr->batch_host && job_ptr->alloc_node) {
+		xstrfmtcat(exec_host_file, "%s/exec_host", job_dir);
+		if (_write_nid_file(exec_host_file, job_ptr->alloc_node,
+				    job_ptr->job_id)) {
+			xfree(exec_host_file);
+		}
 	}
 
 	/* Run "paths" function, get DataWarp environment variables */
@@ -3994,7 +3964,7 @@ extern int bb_p_job_begin(struct job_record *job_ptr)
 		}
 
 		/* Setup "pre_run" operation */
-		pre_run_argv = xmalloc(sizeof(char *) * 10);
+		pre_run_argv = xmalloc(sizeof(char *) * 12);
 		pre_run_argv[0] = xstrdup("dw_wlm_cli");
 		pre_run_argv[1] = xstrdup("--function");
 		pre_run_argv[2] = xstrdup("pre_run");
@@ -4002,13 +3972,26 @@ extern int bb_p_job_begin(struct job_record *job_ptr)
 		xstrfmtcat(pre_run_argv[4], "%u", job_ptr->job_id);
 		pre_run_argv[5] = xstrdup("--job");
 		xstrfmtcat(pre_run_argv[6], "%s/script", job_dir);
+		arg_inx = 7;
 		if (client_nodes_file_nid) {
 #if defined(HAVE_NATIVE_CRAY)
-			pre_run_argv[7] = xstrdup("--nidlistfile");
+			pre_run_argv[arg_inx++] = xstrdup("--nidlistfile");
 #else
-			pre_run_argv[7] = xstrdup("--nodehostnamefile");
+			pre_run_argv[arg_inx++] = xstrdup("--nodehostnamefile");
 #endif
-			pre_run_argv[8] = xstrdup(client_nodes_file_nid);
+			pre_run_argv[arg_inx++] =
+				xstrdup(client_nodes_file_nid);
+		}
+		if (exec_host_file) {
+#if defined(HAVE_NATIVE_CRAY)
+			pre_run_argv[arg_inx++] =
+				xstrdup("--jobexecutionnodefilenids");
+#else
+			pre_run_argv[arg_inx++] =
+				xstrdup("--jobexecutionnodefile");
+#endif
+			pre_run_argv[arg_inx++] =
+				xstrdup(exec_host_file);
 		}
 		pre_run_args = xmalloc(sizeof(pre_run_args_t));
 		pre_run_args->args    = pre_run_argv;
@@ -4026,6 +4009,7 @@ extern int bb_p_job_begin(struct job_record *job_ptr)
 
 fini:
 	xfree(client_nodes_file_nid);
+	xfree(exec_host_file);
 	xfree(job_dir);
 	return rc;
 }

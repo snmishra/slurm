@@ -567,18 +567,20 @@ extern int get_data(void)
 	if (!jobs)
 		return SLURM_ERROR;
 
-	/* Remove duplicate federated jobs. The db will remove duplicates for
+	/*
+	 * Remove duplicate federated jobs. The db will remove duplicates for
 	 * one cluster but not when jobs for multiple clusters are requested.
 	 * Remove the current job if there were jobs with the same id submitted
-	 * in the future. */
+	 * in the future.
+	 */
 	if (params.cluster_name && !(job_cond->flags & JOBCOND_FLAG_DUP))
-	    _remove_duplicate_fed_jobs(jobs);
+		_remove_duplicate_fed_jobs(jobs);
 
 	itr = list_iterator_create(jobs);
 	while ((job = list_next(itr))) {
 
 		if (job->user) {
-			struct	passwd *pw = NULL;
+			struct passwd *pw = NULL;
 			if ((pw=getpwnam(job->user)))
 				job->uid = pw->pw_uid;
 		}
@@ -609,12 +611,12 @@ extern int get_data(void)
 
 		/* Now figure out the average of the total of averages */
 		tmp_usage = job->stats.tres_usage_in_ave;
-		job->stats.tres_usage_in_ave = slurmdb_ave_tres_usage(
-			tmp_usage, cnt);
+		job->stats.tres_usage_in_ave =
+			slurmdb_ave_tres_usage(tmp_usage, cnt);
 		xfree(tmp_usage);
 		tmp_usage = job->stats.tres_usage_out_ave;
-		job->stats.tres_usage_out_ave = slurmdb_ave_tres_usage(
-			tmp_usage, cnt);
+		job->stats.tres_usage_out_ave =
+			slurmdb_ave_tres_usage(tmp_usage, cnt);
 		xfree(tmp_usage);
 
 		list_iterator_destroy(itr_step);
@@ -983,7 +985,6 @@ extern void parse_command_line(int argc, char **argv)
 			start_tm.tm_sec = 0;
 			start_tm.tm_min = 0;
 			start_tm.tm_hour = 0;
-			start_tm.tm_isdst = -1;
 			job_cond->usage_start = slurm_mktime(&start_tm);
 		}
 	}

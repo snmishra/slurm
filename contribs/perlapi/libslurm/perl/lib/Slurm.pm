@@ -325,18 +325,6 @@ Get the string representation of the specified accounting enforce type.
 
 =back    
 
-=head3 $str = $slurm->conn_type_string($num);
-
-Get the string representation of the specified connection type.
-
-=over 2
-
-=item * IN $num: connection type number.
-    
-=item * RET: connection type string.
-
-=back    
-
 =head3 $str = $slurm->node_use_string($num);
 
 Get the string representation of the specified node usage type.
@@ -346,18 +334,6 @@ Get the string representation of the specified node usage type.
 =item * IN $num: node usage type number.
     
 =item * RET: node usage type string.
-
-=back    
-
-=head3 $str = $slurm->bg_block_state_string($num);
-
-Get the string representation of the specified BlueGene block state.
-
-=over 2
-
-=item * IN $num: BG block state number.
-    
-=item * RET: BG block state string.
 
 =back    
 
@@ -1049,7 +1025,7 @@ Output information about all SLURM nodes based upon message as loaded using C<lo
 
 =back    
 
-=head3 $slurm->print_node_table($out, $node_info, $node_scaling=1, $one_liner=0);
+=head3 $slurm->print_node_table($out, $node_info, $one_liner=0);
 
 Output information about a specific SLURM node based upon message as loaded using C<load_node()>.
 
@@ -1059,21 +1035,17 @@ Output information about a specific SLURM node based upon message as loaded usin
 
 =item * IN $node_info: an individual node information record with structure of C<node_info_t>.
 
-=item * IN $node_scaling: the number of nodes each node information record represents.
-
 =item * IN $one_liner: whether to print as a single line.
 
 =back    
 
-=head3 $str = $slurm->sprint_node_table($node_info, $node_scaling=1, $one_liner=0);
+=head3 $str = $slurm->sprint_node_table($node_info, $one_liner=0);
 
 Output information about a specific SLURM node based upon message as loaded using C<load_node>.
 
 =over 2
 
 =item * IN $node_info: an individual node information record with structure of C<node_info_t>.
-
-=item * IN $node_scaling: number of nodes each node information record represents.
 
 =item * IN $one_liner: whether to print as a single line.
 
@@ -1140,28 +1112,6 @@ Output information about a specific SLURM topology record based upon message as 
 
 
 =head2 SLURM SELECT READ/PRINT/UPDATE FUNCTIONS
-
-=head3 $rc = $slurm->get_select_jobinfo($jobinfo, $data_type, $data)
-
-Get data from a select job credential. 
-
-=over 2
-
-=item * IN $jobinfo: select job credential to get data from. Opaque object.
-
-=item * IN $data_type: type of data to get.
-
-=over 2    
-
-=item * TODO: enumerate data type and returned value.
-
-=back
-
-=item * OUT $data: the data got.
-
-=item * RET: error code.    
-
-=back
 
 =head3 $rc = $slurm->get_select_nodeinfo($nodeinfo, $data_type, $state, $data);
 

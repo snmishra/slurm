@@ -168,7 +168,6 @@ int	association_based_accounting = 0;
 void *	acct_db_conn = NULL;
 int	backup_inx;
 int	batch_sched_delay = 3;
-int	bg_recover = DEFAULT_RECOVER;
 uint32_t cluster_cpus = 0;
 time_t	control_time = 0;
 time_t	last_proc_req_start = 0;
@@ -458,7 +457,7 @@ int main(int argc, char **argv)
 			slurmctld_conf.job_credential_private_key);
 	if (!slurmctld_config.cred_ctx) {
 		if (test_config) {
-			fatal("slurm_cred_creator_ctx_create(%s): %m",
+			error("slurm_cred_creator_ctx_create(%s): %m",
 				slurmctld_conf.job_credential_private_key);
 			test_config_rc = 1;
 		} else {
@@ -912,16 +911,6 @@ int main(int argc, char **argv)
 	 * do this outside of MEMORY_LEAK_DEBUG so that remote connections get
 	 * closed.
 	 */
-
-#ifdef HAVE_BG
-	/*
-	 * Always call slurm_select_fini() on some systems like
-	 * BlueGene we need to make sure other processes are ended
-	 * or we could get a random core from within it's
-	 * underlying infrastructure.
-	 */
-        slurm_select_fini();
-#endif
 
 #endif
 
@@ -1380,8 +1369,7 @@ static int _accounting_cluster_ready(void)
 	char *cluster_nodes = NULL, *cluster_tres_str;
 	slurmctld_lock_t node_write_lock = {
 		NO_LOCK, NO_LOCK, WRITE_LOCK, WRITE_LOCK, NO_LOCK };
-	assoc_mgr_lock_t locks = { NO_LOCK, NO_LOCK, NO_LOCK, NO_LOCK,
-				   WRITE_LOCK, NO_LOCK, NO_LOCK };
+	assoc_mgr_lock_t locks = { .tres = WRITE_LOCK };
 
 	lock_slurmctld(node_write_lock);
 	/* Now get the names of all the nodes on the cluster at this
@@ -1595,8 +1583,7 @@ static int _init_tres(void)
 	List add_list = NULL;
 	slurmdb_tres_rec_t *tres_rec;
 	slurmdb_update_object_t update_object;
-	assoc_mgr_lock_t locks = { NO_LOCK, NO_LOCK, NO_LOCK, NO_LOCK,
-				   READ_LOCK, NO_LOCK, NO_LOCK };
+	assoc_mgr_lock_t locks = { .tres = READ_LOCK };
 
 	if (!temp_char) {
 		error("No tres defined, this should never happen");
@@ -1773,8 +1760,7 @@ static void _update_cluster_tres(void)
 	/* Write lock on jobs */
 	slurmctld_lock_t job_write_lock =
 		{ NO_LOCK, WRITE_LOCK, NO_LOCK, NO_LOCK, NO_LOCK };
-	assoc_mgr_lock_t locks = { NO_LOCK, NO_LOCK, NO_LOCK, NO_LOCK,
-				   READ_LOCK, NO_LOCK, NO_LOCK };
+	assoc_mgr_lock_t locks = { .tres = READ_LOCK };
 
 	if (!job_list)
 		return;
@@ -2447,10 +2433,6 @@ static void _set_node_billing_tres(struct node_record *node_ptr,
 	node_ptr->tres_cnt[TRES_ARRAY_BILLING] = max_billing;
 }
 
-/*
- * A slurmctld lock needs to at least have a node and partition write lock set
- * before this is called
- */
 extern void set_cluster_tres(bool assoc_mgr_locked)
 {
 	struct node_record *node_ptr;
@@ -2458,8 +2440,10 @@ extern void set_cluster_tres(bool assoc_mgr_locked)
 	int i;
 	uint64_t cluster_billing = 0;
 	char *unique_tres = NULL;
-	assoc_mgr_lock_t locks = { NO_LOCK, NO_LOCK, NO_LOCK, NO_LOCK,
-				   WRITE_LOCK, NO_LOCK, NO_LOCK };
+	assoc_mgr_lock_t locks = { .tres = WRITE_LOCK };
+
+	xassert(verify_lock(NODE_LOCK, WRITE_LOCK));
+	xassert(verify_lock(PART_LOCK, WRITE_LOCK));
 
 	if (!assoc_mgr_locked)
 		assoc_mgr_lock(&locks);
@@ -2580,11 +2564,11 @@ static int _report_locks_set(void)
 
 	get_lock_values(&lock_flags);
 
-	if (lock_flags.entity[read_lock(CONFIG_LOCK)])
+	if (lock_flags.entity[read_lock(CONF_LOCK)])
 		strcat(config, "R");
-	if (lock_flags.entity[write_lock(CONFIG_LOCK)])
+	if (lock_flags.entity[write_lock(CONF_LOCK)])
 		strcat(config, "W");
-	if (lock_flags.entity[write_wait_lock(CONFIG_LOCK)])
+	if (lock_flags.entity[write_wait_lock(CONF_LOCK)])
 		strcat(config, "P");
 
 	if (lock_flags.entity[read_lock(JOB_LOCK)])
@@ -2648,18 +2632,12 @@ static void _parse_commandline(int argc, char **argv)
 {
 	int c = 0;
 	char *tmp_char;
-	bool bg_recover_override = 0;
 
 	opterr = 0;
-	while ((c = getopt(argc, argv, "BcdDf:hiL:n:rRtvV")) != -1) {
+	while ((c = getopt(argc, argv, "cdDf:hiL:n:rRtvV")) != -1) {
 		switch (c) {
-		case 'B':
-			bg_recover = 0;
-			bg_recover_override = 1;
-			break;
 		case 'c':
 			recover = 0;
-			bg_recover = 0;
 			break;
 		case 'd':
 			daemonize = 1;
@@ -2692,13 +2670,9 @@ static void _parse_commandline(int argc, char **argv)
 			break;
 		case 'r':
 			recover = 1;
-			if (!bg_recover_override)
-				bg_recover = 1;
 			break;
 		case 'R':
 			recover = 2;
-			if (!bg_recover_override)
-				bg_recover = 1;
 			break;
 		case 't':
 			test_config = true;
@@ -2727,10 +2701,6 @@ static void _parse_commandline(int argc, char **argv)
 static void _usage(char *prog_name)
 {
 	fprintf(stderr, "Usage: %s [OPTIONS]\n", prog_name);
-#ifdef HAVE_BG
-	fprintf(stderr, "  -B      "
-			"\tDo not recover state of bluegene blocks.\n");
-#endif
 #if (DEFAULT_RECOVER != 0)
 	fprintf(stderr, "  -c      "
 			"\tDo not recover state from last checkpoint.\n");
@@ -2854,10 +2824,11 @@ static int _shutdown_backup_controller(void)
 	return bu_rc;
 }
 
-/* Reset the job credential key based upon configuration parameters
- * NOTE: READ lock_slurmctld config before entry */
+/* Reset the job credential key based upon configuration parameters */
 static void _update_cred_key(void)
 {
+	xassert(verify_lock(CONF_LOCK, READ_LOCK));
+
 	slurm_cred_ctx_key_update(slurmctld_config.cred_ctx,
 				  slurmctld_conf.job_credential_private_key);
 }
@@ -3093,11 +3064,11 @@ static void *_assoc_cache_mgr(void *no_data)
 	struct part_record *part_ptr = NULL;
 	slurmdb_qos_rec_t qos_rec;
 	slurmdb_assoc_rec_t assoc_rec;
-	/* Write lock on jobs, read lock on nodes and partitions */
+	/* Write lock on jobs, nodes and partitions */
 	slurmctld_lock_t job_write_lock =
-		{ NO_LOCK, WRITE_LOCK, READ_LOCK, WRITE_LOCK, NO_LOCK };
-	assoc_mgr_lock_t locks = { READ_LOCK, NO_LOCK, READ_LOCK, NO_LOCK,
-				   WRITE_LOCK, NO_LOCK, NO_LOCK };
+		{ NO_LOCK, WRITE_LOCK, WRITE_LOCK, WRITE_LOCK, NO_LOCK };
+	assoc_mgr_lock_t locks =
+		{ .assoc = READ_LOCK, .qos = READ_LOCK, .tres = WRITE_LOCK };
 
 	while (running_cache == 1) {
 		slurm_mutex_lock(&assoc_cache_mutex);

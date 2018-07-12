@@ -105,6 +105,32 @@ extern void core_array_or(bitstr_t **core_array1, bitstr_t **core_array2);
 extern void free_core_array(bitstr_t ***core_array);
 
 /*
+ * Get configured DefCpuPerGPU information from a list
+ * (either global or per partition list)
+ * Returns NO_VAL64 if configuration parameter not set
+ */
+extern uint64_t get_def_cpu_per_gpu(List job_defaults_list);
+
+/*
+ * Get configured DefMemPerGPU information from a list
+ * (either global or per partition list)
+ * Returns NO_VAL64 if configuration parameter not set
+ */
+extern uint64_t get_def_mem_per_gpu(List job_defaults_list);
+
+/* Return TRUE if identified job is preemptable */
+extern bool is_preemptable(struct job_record *job_ptr,
+			   List preemptee_candidates);
+
+/*
+ * Return true if job is in the processing of cleaning up.
+ * This is used for Cray systems to indicate the Node Health Check (NHC)
+ * is still running. Until NHC completes, the job's resource use persists
+ * the select/cons_res plugin data structures.
+ */
+extern bool job_cleaning(struct job_record *job_ptr);
+
+/*
  * Test if job can fit into the given set of core_bitmaps
  * IN job_resrcs_ptr - resources allocated to a job
  * IN sys_resrcs_ptr - bitmap array (one per node) of available cores
@@ -118,6 +144,14 @@ extern void log_tres_state(struct node_use_record *node_usage,
 			   struct part_res_record *part_record_ptr);
 
 /*
+ * Bit a core bitmap array of available cores
+ * node_bitmap IN - Nodes available for use
+ * core_spec IN - Specialized core specification, NO_VAL16 if none
+ * RET core bitmap array, one per node. Use free_core_array() to release memory
+ */
+extern bitstr_t **mark_avail_cores(bitstr_t *node_bitmap, uint16_t core_spec);
+
+/*
  * deallocate resources previously allocated to the given job
  * - subtract 'struct job_resources' resources from 'struct part_res_record'
  * - subtract job's memory requirements from 'struct node_res_record'
@@ -125,6 +159,8 @@ extern void log_tres_state(struct node_use_record *node_usage,
  * if action = 0 then subtract cores, memory + GRES (running job was terminated)
  * if action = 1 then subtract memory + GRES (suspended job was terminated)
  * if action = 2 then only subtract cores (job is suspended)
+ *
+ * See also: _add_job_to_res() in select_cons_tres.c
  */
 extern int rm_job_res(struct part_res_record *part_record_ptr,
 		      struct node_use_record *node_usage,

@@ -349,6 +349,8 @@ static slurm_errtab_t slurm_errtab[] = {
 	  "Duplicate job step id"				},
 	{ ESLURM_X11_NOT_AVAIL,
 	  "X11 forwarding not available"			},
+	{ ESLURM_GROUP_ID_MISSING,
+	  "Invalid group id"					},
 	{ ESLURM_BATCH_CONSTRAINT,
 	  "Job --batch option is invalid or not a subset of --constraints" },
 	{ ESLURM_INVALID_TRES,
@@ -357,6 +359,10 @@ static slurm_errtab_t slurm_errtab[] = {
 	  "Invalid TRESBillingWeights specification"            },
 	{ ESLURM_INVALID_JOB_DEFAULTS,
 	  "Invalid JobDefaults specification"			},
+	{ ESLURM_RESERVATION_MAINT,
+	  "Job can not start due to maintenance reservation."	},
+	{ ESLURM_INVALID_GRES_TYPE,
+	  "Invalid GRES specification (with and without type identification)" },
 
 	/* slurmd error codes */
 	{ ESLRUMD_PIPE_ERROR_ON_TASK_SPAWN,

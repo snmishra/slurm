@@ -1,4 +1,4 @@
-.TH sdiag "1" "Slurm Commands" "November 2017" "Slurm Commands"
+.TH sdiag "1" "Slurm Commands" "July 2018" "Slurm Commands"
 
 .SH "NAME"
 .LP
@@ -198,11 +198,7 @@ maximum running jobs for an account, etc).
 
 .TP
 \fBDepth Mean (try sched)\fR
-Mean of processed jobs during backfilling scheduling cycles since last reset.
-Jobs which are found to be ineligible to run when examined by the backfill
-scheduler are not counted (e.g. jobs submitted to multiple partitions and
-already started, jobs which have reached a QOS or account limit such as
-maximum running jobs for an account, etc).
+The subset of Depth Mean that the backfill scheduler attempted to schedule.
 
 .TP
 \fBLast queue length\fR
@@ -233,6 +229,14 @@ microseconds.
 The fifth block reports the RPCs issued by user ID, the total number of RPCs
 they have issued, the total time consumed by all of those RPCs plus the average
 time consumed by each RPC in microseconds.
+
+.LP
+The sixth block of information, labeled Pending RPC Statistics, shows
+information about pending outgoing RPCs on the slurmctld agent queue.
+The first section of this block shows types of RPCs on the queue and the
+count of each. The second section shows up to the first 25 individual RPCs
+pending on the agent queue, including the type and the destination host list.
+This information is cached and only refreshed on 30 second intervals.
 
 .SH "OPTIONS"
 .LP

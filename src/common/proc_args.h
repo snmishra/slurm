@@ -60,15 +60,6 @@ void set_distribution(task_dist_states_t distribution,
 /* verify the requested distribution type */
 task_dist_states_t verify_dist_type(const char *arg, uint32_t *plane_size);
 
-/*
- * verify comma separated list of connection types to array of uint16_t
- * connection_types or NO_VAL if not recognized
- */
-extern void verify_conn_type(const char *arg, uint16_t *conn_type);
-
-/* verify the requested geometry arguments */
-int verify_geometry(const char *arg, uint16_t *geometry);
-
 /* return command name from its full path name */
 char * base_name(char* command);
 
@@ -175,14 +166,6 @@ extern int parse_int(const char *name, const char *val, bool positive);
  * IN  isenv - bool   cluster name from env or from command line option.
  */
 extern void print_db_notok(const char *cname, bool isenv);
-
-
-
-extern void bg_figure_nodes_tasks(int *min_nodes, int *max_nodes,
-				  int *ntasks_per_node, bool *ntasks_set,
-				  int *ntasks, bool nodes_set,
-				  bool nodes_set_opt, bool overcommit,
-				  bool set_tasks);
 
 /*
  * parse_resv_flags() used to parse the Flags= option.  It handles

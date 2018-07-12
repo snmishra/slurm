@@ -219,7 +219,6 @@ extern int   accounting_enforce;
 extern int   association_based_accounting;
 extern int   backup_inx;		/* BackupController# index */
 extern int   batch_sched_delay;
-extern int   bg_recover;		/* state recovery mode */
 extern time_t control_time;		/* Time when became primary controller */
 extern uint32_t   cluster_cpus;
 extern bool node_features_updated;
@@ -482,6 +481,8 @@ typedef struct job_feature {
  * can be purged after initiation */
 struct job_details {
 	char *acctg_freq;		/* accounting polling interval */
+	time_t accrue_time;             /* Time when we start accruing time for
+					 * priority, */
 	uint32_t argc;			/* count of argv elements */
 	char **argv;			/* arguments for a batch job script */
 	time_t begin_time;		/* start at this time (srun --begin),
@@ -504,6 +505,7 @@ struct job_details {
 	uint32_t cpu_freq_gov;  	/* cpu frequency governor */
 	uint16_t cpus_per_task;		/* number of processors required for
 					 * each task */
+	uint16_t orig_cpus_per_task;	/* requested value of cpus_per_task */
 	List depend_list;		/* list of job_ptr:state pairs */
 	char *dependency;		/* wait for other jobs */
 	char *orig_dependency;		/* original value (for archiving) */
@@ -535,6 +537,7 @@ struct job_details {
 					 * SLURM_DIST_PLANE */
 	/* job constraints: */
 	uint32_t pn_min_cpus;		/* minimum processors per node */
+	uint32_t orig_pn_min_cpus;	/* requested value of pn_min_cpus */
 	uint64_t pn_min_memory;		/* minimum memory per node (MB) OR
 					 * memory per allocated
 					 * CPU | MEM_PER_CPU */
@@ -642,15 +645,14 @@ struct job_record {
 	char *comment;			/* arbitrary comment */
 	uint32_t cpu_cnt;		/* current count of CPUs held
 					 * by the job, decremented while job is
-					 * completing (N/A for bluegene
-					 * systems) */
+					 * completing */
 	char *cpus_per_tres;		/* semicolon delimited list of TRES=# values */
 	uint16_t cr_enabled;            /* specify if Consumable Resources
 					 * is enabled. Needed since CR deals
 					 * with a finer granularity in its
 					 * node/cpu scheduling (available cpus
 					 * instead of available nodes) than the
-					 * bluegene and the linear plugins
+					 * linear plugin
 					 * 0 if cr is NOT enabled,
 					 * 1 if cr is enabled */
 	uint64_t db_index;              /* used only for database plugins */
@@ -676,7 +678,6 @@ struct job_record {
 					 * do not pack. this is here to cache
 					 * the record, and may not be set
 					 * depending on configuration */
-	char *gres;			/* generic resources requested by job */
 	List gres_list;			/* generic resource allocation detail */
 	char *gres_alloc;		/* Allocated GRES added over all nodes
 					 * to be passed to slurmdbd */
@@ -855,6 +856,8 @@ struct job_record {
 #define SLURM_DEPEND_EXPAND		6	/* Expand running job */
 #define SLURM_DEPEND_AFTER_CORRESPOND	7	/* After corresponding job array
 						 * elements completes */
+#define SLURM_DEPEND_BURST_BUFFER	8	/* After job burst buffer
+						 * stage-out completes */
 
 #define SLURM_FLAGS_OR			1	/* OR job dependencies */
 
@@ -889,7 +892,6 @@ struct 	step_record {
 	uint32_t exit_code;		/* highest exit code from any task */
 	bitstr_t *exit_node_bitmap;	/* bitmap of exited nodes */
 	ext_sensors_data_t *ext_sensors; /* external sensors plugin data */
-	char *gres;			/* generic resources required */
 	List gres_list;			/* generic resource allocation detail */
 	char *host;			/* host for srun communications */
 	struct job_record* job_ptr; 	/* ptr to the job that owns the step */
@@ -932,7 +934,7 @@ struct 	step_record {
 	char *tres_bind;		/* Task to TRES binding directives */
 	char *tres_fmt_alloc_str;       /* formatted tres string for step */
 	char *tres_freq;		/* TRES frequency directives */
-	char *tres_per_job;		/* semicolon delimited list of TRES=# values */
+	char *tres_per_step;		/* semicolon delimited list of TRES=# values */
 	char *tres_per_node;		/* semicolon delimited list of TRES=# values */
 	char *tres_per_socket;		/* semicolon delimited list of TRES=# values */
 	char *tres_per_task;		/* semicolon delimited list of TRES=# values */
@@ -959,8 +961,11 @@ enum select_plugindata_info {
 	SELECT_AVAIL_MEMORY, /* data-> uint64 avail mem  (CR support) */
 	SELECT_STATIC_PART,  /* data-> uint16, 1 if static partitioning
 			      * BlueGene support */
-	SELECT_CONFIG_INFO   /* data-> List get .conf info from select
+	SELECT_CONFIG_INFO,  /* data-> List get .conf info from select
 			      * plugin */
+	SELECT_SINGLE_JOB_TEST	/* data-> uint16 1 if one select_g_job_test()
+				 * call per job, node weights in node data
+				 * structure, 0 otherwise, for cons_tres */
 };
 #define SELECT_TYPE_CONS_RES	1
 #define SELECT_TYPE_CONS_TRES	2
@@ -1338,7 +1343,7 @@ extern int job_allocate(job_desc_msg_t * job_specs, int immediate,
 extern void job_array_pre_sched(struct job_record *job_ptr);
 
 /* If this is a job array meta-job, clean up after scheduling attempt */
-extern void job_array_post_sched(struct job_record *job_ptr);
+extern struct job_record *job_array_post_sched(struct job_record *job_ptr);
 
 /* Create an exact copy of an existing job record for a job array.
  * IN job_ptr - META job record for a job array, which is to become an
@@ -2672,14 +2677,12 @@ extern double calc_job_billable_tres(struct job_record *job_ptr,
  */
 extern void update_job_limit_set_tres(uint16_t **tres_limits);
 
-/* Validate TRES specification of the form "name=spec[;name=spec]" */
-extern bool valid_tres_bind(char *tres);
-
-/* Validate TRES specification of the form "name=[type:]#[;name=[type:]#]" */
+/*
+ * Validate TRES specification of the form:
+ * "name=[type:]#[,[type:]#][;name=[type:]#]"
+ * For example: "gpu:kepler:2,craynetwork=1"
+ */
 extern bool valid_tres_cnt(char *tres);
-
-/* Validate TRES specification of the form "name=spec[;name=spec]" */
-extern bool valid_tres_freq(char *tres);
 
 /*
  * Validate the named TRES is valid for scheduling parameters.

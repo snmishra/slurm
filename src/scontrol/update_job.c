@@ -1156,7 +1156,11 @@ extern int scontrol_update_job(int argc, char **argv)
 			update_cnt++;
 		}
 		else if (!xstrncasecmp(tag, "TresPerNode", MAX(taglen, 8))) {
-			job_msg.tres_per_node = val;
+			/* "gres" replaced by "tres_per_node" in v18.08 */
+			if (job_msg.tres_per_node)
+				xstrfmtcat(job_msg.tres_per_node, ",%s", val);
+			else
+				job_msg.tres_per_node = xstrdup(val);
 			update_cnt++;
 		}
 		else if (!xstrncasecmp(tag, "TresPerSocket", MAX(taglen, 8))) {
@@ -1182,11 +1186,14 @@ extern int scontrol_update_job(int argc, char **argv)
 			update_cnt++;
 		}
 		else if (xstrncasecmp(tag, "Gres", MAX(taglen, 2)) == 0) {
+			/* "gres" replaced by "tres_per_node" in v18.08 */
 			if (!xstrcasecmp(val, "help") ||
 			    !xstrcasecmp(val, "list")) {
 				print_gres_help();
+			} else if (job_msg.tres_per_node) {
+				xstrfmtcat(job_msg.tres_per_node, ",%s", val);
 			} else {
-				job_msg.gres = val;
+				job_msg.tres_per_node = xstrdup(val);
 				update_cnt++;
 			}
 		}
@@ -1201,64 +1208,6 @@ extern int scontrol_update_job(int argc, char **argv)
 		else if (xstrncasecmp(tag, "Dependency", MAX(taglen, 1)) == 0) {
 			job_msg.dependency = val;
 			update_cnt++;
-		}
-		else if (xstrncasecmp(tag, "Geometry", MAX(taglen, 2)) == 0) {
-			char* token, *delimiter = ",x", *next_ptr;
-			int j, rc = 0;
-			int dims = slurmdb_setup_cluster_dims();
-			uint16_t geo[dims];
-			char* geometry_tmp = xstrdup(val);
-			char* original_ptr = geometry_tmp;
-			token = strtok_r(geometry_tmp, delimiter, &next_ptr);
-			for (j=0; j<dims; j++) {
-				if (token == NULL) {
-					error("insufficient dimensions in "
-						"Geometry");
-					rc = -1;
-					break;
-				}
-				geo[j] = (uint16_t) atoi(token);
-				if (geo[j] <= 0) {
-					error("invalid --geometry argument");
-					rc = -1;
-					break;
-				}
-				geometry_tmp = next_ptr;
-				token = strtok_r(geometry_tmp, delimiter,
-					&next_ptr);
-			}
-			if (token != NULL) {
-				error("too many dimensions in Geometry");
-				rc = -1;
-			}
-
-			if (original_ptr)
-				xfree(original_ptr);
-			if (rc != 0)
-				exit_code = 1;
-			else {
-				for (j=0; j<dims; j++)
-					job_msg.geometry[j] = geo[j];
-				update_cnt++;
-			}
-		}
-
-		else if (xstrncasecmp(tag, "Rotate", MAX(taglen, 2)) == 0) {
-			if (xstrncasecmp(val, "YES", MAX(vallen, 1)) == 0)
-				job_msg.rotate = 1;
-			else if (xstrncasecmp(val, "NO", MAX(vallen, 1)) == 0)
-				job_msg.rotate = 0;
-			else if (parse_uint16(val, &job_msg.rotate)) {
-				error ("Invalid rotate value: %s", val);
-				exit_code = 1;
-				return 0;
-			}
-			update_cnt++;
-		}
-		else if (xstrncasecmp(tag, "Conn-Type", MAX(taglen, 2)) == 0) {
-			verify_conn_type(val, job_msg.conn_type);
-			if (job_msg.conn_type[0] != NO_VAL16)
-				update_cnt++;
 		}
 		else if (xstrncasecmp(tag, "Licenses", MAX(taglen, 1)) == 0) {
 			job_msg.licenses = val;

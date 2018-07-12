@@ -204,6 +204,27 @@ static int _print_stats(void)
 		       rpc_user_ave_time[i], buf->rpc_user_time[i]);
 	}
 
+	printf("\nPending RPC statistics\n");
+	if (buf->rpc_queue_type_count == 0)
+		printf("\tNo pending RPCs\n");
+	for (i = 0; i < buf->rpc_queue_type_count; i++){
+		printf("\t%-40s(%5u) count:%-6u\n",
+		       rpc_num2string(buf->rpc_queue_type_id[i]),
+		       buf->rpc_queue_type_id[i],
+		       buf->rpc_queue_count[i]);
+	}
+
+	if (buf->rpc_dump_count > 0) {
+		printf("\nPending RPCs\n");
+	}
+
+	for (i = 0; i < buf->rpc_dump_count; i++) {
+		printf("\t%2u: %-36s %s\n",
+		       i+1,
+		       rpc_num2string(buf->rpc_dump_types[i]),
+		       buf->rpc_dump_hostlist[i]);
+	}
+
 	return 0;
 }
 
